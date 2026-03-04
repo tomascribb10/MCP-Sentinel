@@ -2,7 +2,7 @@
   <img src="assets/Marshall-Logo.jpg" alt="Logotipo MCP-Sentinel" width="200"/>
 </p>
 
-[![Visitas](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https://github.com/tomascribb10/MCP-Sentinel&count_bg=%230080FF&title_bg=%23555555&title=Visitas&edge_flat=true)](https://github.com/tomascribb10/MCP-Sentinel)
+![Vistas](https://img.shields.io/endpoint?url=https%3A%2F%2Fhits.dwyl.com%2Ftomascribb10%2FMCP-Sentinel.json&color=0080FF&label=Visitas)
 
 # MCP-Sentinel
 
