@@ -1,0 +1,74 @@
+---
+# MCP-Sentinel — Test Agent (fixed identity)
+#
+# A standalone agent container whose agent_id NEVER changes across
+# recreations.  Identity is pinned via a fixed hostname so
+# socket.gethostname() always returns "sentinel-agent-test" regardless
+# of how many times the container is rebuilt or recreated.
+#
+# Prerequisites:
+#   The main control plane must be running first:
+#     docker compose up -d
+#
+# Usage:
+#   docker compose -f docker-compose.agent-test.yml up -d --build
+#   docker compose -f docker-compose.agent-test.yml down
+#   docker compose -f docker-compose.agent-test.yml logs -f
+#
+# After first run, register the agent in a policy with:
+#   sentinel policy create <principal_id> <command_set_id> \
+#       --target-group <group_id>
+#   sentinel group member add <group_id> sentinel-agent-test
+#
+# Config:
+#   Copy config/sentinel.agent-test.conf.example
+#       → config/sentinel.agent-test.conf
+#   (already pre-filled; no changes needed for local dev)
+
+name: sentinel-agent-test
+
+# -----------------------------------------------------------------------
+# Attach to the control-plane network and share its RSA keys volume.
+# "sentinel_" prefix comes from the main compose's project name "sentinel".
+# -----------------------------------------------------------------------
+networks:
+  sentinel-net:
+    external: true
+    name: sentinel_sentinel-net
+
+volumes:
+  sentinel-keys:
+    external: true
+    name: sentinel_sentinel-keys
+
+# -----------------------------------------------------------------------
+# Services
+# -----------------------------------------------------------------------
+services:
+
+  agent-test:
+    build:
+      context: ./sentinel
+      dockerfile: ../docker/Dockerfile.agent
+    image: sentinel-agent:latest
+
+    # Fixed container name and hostname — these are the two knobs that
+    # keep the agent_id stable.  sentinel-agent reads agent_id from
+    # [agent] agent_id in the config; if unset it falls back to
+    # socket.gethostname() which Docker sets from `hostname:`.
+    container_name: sentinel-agent-test
+    hostname: sentinel-agent-test
+
+    restart: unless-stopped
+    networks: [sentinel-net]
+
+    environment:
+      SENTINEL_CONF: /etc/sentinel/sentinel.conf
+
+    volumes:
+      # RSA public key from control plane (same Docker-managed volume)
+      - sentinel-keys:/etc/sentinel:ro
+      # Agent config — points to rabbitmq/conductor on sentinel-net
+      - ./config/sentinel.agent-test.conf:/etc/sentinel/sentinel.conf:ro
+
+    command: sentinel-agent

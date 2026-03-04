@@ -1,0 +1,55 @@
+# -----------------------------------------------------------------------
+# MCP-Sentinel — flat dependency list for Docker layer caching.
+# Keep in sync with install_requires + extras in setup.cfg.
+# Docker installs this first (cached layer), then installs the package
+# itself with --no-deps so entry points and console_scripts are registered.
+# -----------------------------------------------------------------------
+
+# Async messaging
+oslo.messaging>=14.0.0
+oslo.config>=9.0.0
+oslo.log>=5.0.0
+oslo.context>=5.0.0
+
+# Plugin management
+stevedore>=5.0.0
+
+# CLI framework
+cliff>=4.0.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Persistence
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+psycopg2-binary>=2.9.0
+
+# Cryptography
+cryptography>=41.0.0
+
+# HTTP (Admin API & MCP API)
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+python-multipart>=0.0.9
+
+# Auth (Admin API standalone)
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+
+# Telegram 2FA plugin
+python-telegram-bot>=20.0
+
+# Utilities
+tenacity>=8.2.0
+
+# Dev / test extras
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+factory-boy>=3.3.0
+fakeredis>=2.0.0
+black>=23.0.0
+ruff>=0.1.0
+mypy>=1.5.0

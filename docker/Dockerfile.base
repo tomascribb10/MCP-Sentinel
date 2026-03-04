@@ -1,0 +1,37 @@
+FROM python:3.12-slim
+
+# System dependencies for C extensions:
+#   gcc        — build toolchain
+#   libpq-dev  — psycopg2 (PostgreSQL client)
+#   libssl-dev — cryptography, oslo.messaging TLS
+#   libffi-dev — cffi (used by cryptography)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    libssl-dev \
+    libffi-dev \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# -----------------------------------------------------------------------
+# Layer 1 (cached): install all third-party dependencies.
+# This layer is only rebuilt when requirements.txt changes, not when
+# application source files change.
+# -----------------------------------------------------------------------
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# -----------------------------------------------------------------------
+# Layer 2: copy application source and register the package.
+# --no-deps skips re-downloading deps (already installed above).
+# This registers console_scripts and entry_points from setup.cfg.
+# -----------------------------------------------------------------------
+COPY setup.cfg pyproject.toml ./
+COPY . .
+RUN pip install --no-cache-dir --no-deps .
+
+# Non-root user for all control-plane services
+RUN useradd --no-create-home --shell /bin/false sentinel
+USER sentinel

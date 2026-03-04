@@ -1,0 +1,24 @@
+FROM python:3.12-slim
+
+# Minimal system deps for the agent
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libssl-dev \
+    libffi-dev \
+    systemd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Layer 1 (cached): install third-party dependencies
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Layer 2: copy source and register entry points
+COPY setup.cfg pyproject.toml ./
+COPY . .
+RUN pip install --no-cache-dir --no-deps .
+
+# Agent runs as unprivileged user — never root
+RUN useradd --no-create-home --shell /bin/false sentinel-agent
+USER sentinel-agent

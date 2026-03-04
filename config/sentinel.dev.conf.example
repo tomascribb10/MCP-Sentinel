@@ -1,0 +1,55 @@
+# MCP-Sentinel — Development Configuration Example
+# --------------------------------------------------
+# Copy this file to sentinel.dev.conf and fill in your values.
+# This file is intended for docker-compose local development ONLY.
+# DO NOT use these credentials or settings in production.
+#
+# NEVER commit sentinel.dev.conf (it's in .gitignore).
+
+[DEFAULT]
+debug = true
+log_level = DEBUG
+
+[database]
+connection = postgresql+psycopg2://sentinel:sentinel@postgres:5432/sentinel
+pool_size = 5
+echo = true
+
+[messaging]
+transport_url = rabbit://sentinel:sentinel@rabbitmq:5672/sentinel
+rpc_topic_conductor = sentinel.conductor
+rpc_topic_scheduler = sentinel.scheduler
+agent_queue_prefix = sentinel.agent
+rpc_timeout = 60
+
+[conductor]
+private_key_path = /etc/sentinel/conductor_private.pem
+public_key_path = /etc/sentinel/conductor_public.pem
+rsa_key_bits = 4096
+twofa_challenge_timeout_seconds = 300
+
+[agent]
+# agent_id is read from hostname if not set
+conductor_public_key_path = /etc/sentinel/conductor_public.pem
+heartbeat_interval_seconds = 30
+enabled_drivers = posix_bash
+execution_timeout_seconds = 300
+
+[auth]
+# Use 'stub' for dev (auto-approves 2FA), 'telegram' for real testing
+provider = stub
+admin_api_secret_key = dev-secret-change-me
+admin_api_token_ttl_minutes = 60
+# MCP API key — clients (AI agents) must send: Authorization: Bearer <key>
+# In production: openssl rand -hex 32
+mcp_api_secret_key = dev-mcp-key-change-me
+
+[telegram]
+# Get your token from @BotFather on Telegram
+# Get your chat_id by messaging @userinfobot
+bot_token = YOUR_TELEGRAM_BOT_TOKEN
+approver_chat_id = YOUR_TELEGRAM_CHAT_ID
+
+[keystone]
+# Leave auth_url empty to use standalone local auth
+auth_url =

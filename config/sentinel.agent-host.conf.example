@@ -1,0 +1,42 @@
+# MCP-Sentinel — Host Agent Configuration
+# -----------------------------------------
+# Installed by scripts/install-agent.sh to /etc/sentinel/sentinel-agent.conf
+#
+# BEFORE STARTING THE SERVICE:
+#   1. Replace CONTROL_PLANE_HOST with the real IP or hostname of the machine
+#      running the main sentinel stack (where RabbitMQ is).
+#      If installed on the same machine: use 127.0.0.1
+#
+#   2. Place the conductor public key at /etc/sentinel/conductor_public.pem
+#      Copy from the control-plane host:
+#        scp <control-plane>:/etc/sentinel/conductor_public.pem \
+#            /etc/sentinel/conductor_public.pem
+#      Or extract from a local Docker volume:
+#        docker run --rm -v sentinel_sentinel-keys:/k alpine \
+#          cat /k/conductor_public.pem > /etc/sentinel/conductor_public.pem
+#
+#   3. systemctl start sentinel-agent && journalctl -fu sentinel-agent
+
+[DEFAULT]
+debug = false
+log_level = INFO
+
+[messaging]
+# ↓ Replace CONTROL_PLANE_HOST with the real address of your RabbitMQ
+transport_url = rabbit://sentinel:sentinel@CONTROL_PLANE_HOST:5672/sentinel
+rpc_topic_conductor = sentinel.conductor
+rpc_topic_scheduler = sentinel.scheduler
+agent_queue_prefix = sentinel.agent
+rpc_timeout = 60
+
+[agent]
+# Leave agent_id unset — it defaults to socket.gethostname() which is the
+# real hostname of this machine.  This makes the agent_id stable and
+# meaningful without hard-coding it here.
+# Uncomment only if you need a specific identifier:
+# agent_id = my-server-name
+
+conductor_public_key_path = /etc/sentinel/conductor_public.pem
+heartbeat_interval_seconds = 30
+enabled_drivers = posix_bash
+execution_timeout_seconds = 300
