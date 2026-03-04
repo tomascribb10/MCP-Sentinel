@@ -2,6 +2,10 @@
   <img src="assets/Marshall-Logo.jpg" alt="Logotipo MCP-Sentinel" width="200"/>
 </p>
 
+<p align="center">
+  [![Visitas](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https://github.com/tomascribb10/MCP-Sentinel&count_bg=%230080FF&title_bg=%23555555&title=Visitas&edge_flat=true)](https://github.com/tomascribb10/MCP-Sentinel)
+</p>
+
 # MCP-Sentinel
 
 **Zero Trust orchestration and security framework for AI Agents operating under the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).**
