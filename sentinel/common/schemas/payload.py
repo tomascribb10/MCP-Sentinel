@@ -2,7 +2,7 @@
 Pydantic schemas for the oslo.messaging execution payload.
 
 This is the canonical contract between sentinel-conductor (producer)
-and sentinel-agent (consumer).  The agent MUST validate the RSA
+and sentinel-target (consumer).  The target MUST validate the RSA
 signature in ``PayloadSecurity`` before trusting any other field.
 """
 
@@ -32,7 +32,7 @@ class ExecutionContext(BaseModel):
 
 
 class ExecutionLimits(BaseModel):
-    """Resource constraints applied by the agent during execution."""
+    """Resource constraints applied by the target during execution."""
 
     timeout_seconds: int = Field(default=30, ge=1, le=3600)
     max_stdout_bytes: int = Field(default=1_048_576, ge=0)  # 1 MiB default
@@ -55,12 +55,12 @@ class ExecutionDetail(BaseModel):
     limits: ExecutionLimits = Field(default_factory=ExecutionLimits)
     allowed_paths: list[str] | None = Field(
         default=None,
-        description="Allowed filesystem path prefixes enforced by the agent driver. "
+        description="Allowed filesystem path prefixes enforced by the target driver. "
                     "Included in the signed payload to prevent tampering.",
     )
     require_sudo: bool = Field(
         default=False,
-        description="If True, the agent driver prepends /usr/bin/sudo to the command. "
+        description="If True, the target driver prepends /usr/bin/sudo to the command. "
                     "Included in the signed payload to prevent tampering.",
     )
 
@@ -78,7 +78,7 @@ class PayloadSecurity(BaseModel):
 
     ``signature`` is the base64-encoded signature of the canonical JSON
     representation of ``ExecutionDetail`` + ``ExecutionContext``.
-    ``timestamp`` provides replay-attack protection (agents MUST reject
+    ``timestamp`` provides replay-attack protection (targets MUST reject
     payloads older than a configurable window, e.g. 60 seconds).
     """
 
@@ -97,8 +97,8 @@ class ExecutionPayload(BaseModel):
     """
     Top-level oslo.messaging message body.
 
-    Produced by sentinel-conductor, consumed by sentinel-agent.
-    The agent validates ``security.signature`` before acting on any field.
+    Produced by sentinel-conductor, consumed by sentinel-target.
+    The target validates ``security.signature`` before acting on any field.
     """
 
     message_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -111,14 +111,14 @@ class ExecutionPayload(BaseModel):
 
 class ExecutionResult(BaseModel):
     """
-    Result payload returned by sentinel-agent after execution.
+    Result payload returned by sentinel-target after execution.
 
     Sent back to sentinel-conductor via a dedicated reply queue or
     oslo.messaging RPC return value.
     """
 
     message_id: str = Field(..., description="Echoes the ExecutionPayload.message_id.")
-    agent_id: str
+    target_id: str
     exit_code: int
     stdout: str = ""
     stderr: str = ""

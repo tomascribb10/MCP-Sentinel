@@ -46,9 +46,9 @@ class PathNotAllowed(PolicyDenied):
         )
 
 
-class AgentNotInGroup(PolicyDenied):
-    """The target agent does not belong to the required Host Group."""
-    message = "Target agent is not a member of the required Host Group."
+class TargetNotInGroup(PolicyDenied):
+    """The target does not belong to the required Host Group."""
+    message = "Target is not a member of the required Host Group."
 
 
 # -----------------------------------------------------------------------
@@ -56,7 +56,7 @@ class AgentNotInGroup(PolicyDenied):
 # -----------------------------------------------------------------------
 
 class SignatureVerificationFailed(SentinelException):
-    """Raised by sentinel-agent when RSA signature validation fails."""
+    """Raised by sentinel-target when RSA signature validation fails."""
     message = "Payload RSA-SHA256 signature verification failed."
 
 
@@ -88,19 +88,19 @@ class TwoFARejected(SentinelException):
 # Messaging / transport errors
 # -----------------------------------------------------------------------
 
-class AgentNotFound(SentinelException):
-    """No registered agent matches the requested target."""
-    message = "Target agent not found or not registered."
+class TargetNotFound(SentinelException):
+    """No registered target matches the requested identifier."""
+    message = "Target not found or not registered."
 
 
-class AgentUnreachable(SentinelException):
-    """The agent is registered but not responding (heartbeat timeout)."""
-    message = "Target agent is not reachable (heartbeat timeout)."
+class TargetUnreachable(SentinelException):
+    """The target is registered but not responding (heartbeat timeout)."""
+    message = "Target is not reachable (heartbeat timeout)."
 
 
 class MessageDispatchFailed(SentinelException):
-    """oslo.messaging failed to deliver the payload to the agent queue."""
-    message = "Failed to dispatch message to agent queue."
+    """oslo.messaging failed to deliver the payload to the target queue."""
+    message = "Failed to dispatch message to target queue."
 
 
 # -----------------------------------------------------------------------

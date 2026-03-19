@@ -33,18 +33,20 @@ class CurrentUser(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Agents
+# Targets
 # ---------------------------------------------------------------------------
 
-class AgentUpdate(BaseModel):
+class TargetUpdate(BaseModel):
     description: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
 
 
-class AgentResponse(BaseModel):
+class TargetResponse(BaseModel):
     id: str
-    agent_id: str
+    target_id: str
     hostname: str
+    target_type: str
+    gateway_id: str | None
     description: str | None
     status: str
     last_heartbeat: str | None
@@ -53,7 +55,22 @@ class AgentResponse(BaseModel):
 
 
 class GroupMemberAdd(BaseModel):
-    agent_id: str
+    target_id: str
+
+
+# ---------------------------------------------------------------------------
+# Gateways
+# ---------------------------------------------------------------------------
+
+class GatewayResponse(BaseModel):
+    id: str
+    gateway_id: str
+    hostname: str
+    description: str | None
+    status: str
+    last_heartbeat: str | None
+    labels: dict[str, Any]
+    created_at: str
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +177,7 @@ class AuditLogResponse(BaseModel):
     initiator_id: str
     initiator_type: str
     action: str
-    target_agent_id: str | None
+    target_id: str | None
     target_host: str | None
     driver: str | None
     binary: str | None

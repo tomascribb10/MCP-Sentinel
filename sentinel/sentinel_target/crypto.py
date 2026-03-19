@@ -1,9 +1,9 @@
 """
-sentinel_agent.crypto
+sentinel_target.crypto
 ======================
-Payload verification for sentinel-agent.
+Payload verification for sentinel-target.
 
-The agent NEVER signs — it only verifies.
+The target NEVER signs — it only verifies.
 
 **Golden Rule:** Every payload received from RabbitMQ MUST pass
 ``PayloadVerifier.verify()`` before any execution takes place.
@@ -30,7 +30,7 @@ class PayloadVerifier:
     """
     Holds the conductor's public key and exposes a single ``verify()`` method.
 
-    Instantiate once at agent startup via ``from_config()``, then call
+    Instantiate once at target startup via ``from_config()``, then call
     ``verify(payload_dict)`` on every incoming message.
     """
 
@@ -45,7 +45,7 @@ class PayloadVerifier:
     @classmethod
     def from_config(cls, conf) -> "PayloadVerifier":
         """Load the conductor's public key using the oslo.config path."""
-        key_path = conf.agent.conductor_public_key_path
+        key_path = conf.target.conductor_public_key_path
         LOG.info("Loading conductor public key from %s", key_path)
         public_key = load_public_key(key_path)
         return cls(public_key)

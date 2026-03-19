@@ -1,13 +1,14 @@
-"""initial schema
+"""initial schema (v2 — target/gateway model)
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-02-28 00:00:00.000000
+Create Date: 2026-03-19 00:00:00.000000
 
 Creates all MCP-Sentinel tables:
-  - agents
+  - gateways
+  - targets
   - host_groups
-  - agent_group_memberships
+  - target_group_memberships
   - command_sets
   - commands
   - role_bindings
@@ -19,7 +20,6 @@ Creates all MCP-Sentinel tables:
 from alembic import op
 import sqlalchemy as sa
 
-# revision identifiers, used by Alembic.
 revision = "0001"
 down_revision = None
 branch_labels = None
@@ -28,26 +28,61 @@ depends_on = None
 
 def upgrade() -> None:
     # ------------------------------------------------------------------
-    # agents
+    # gateways
     # ------------------------------------------------------------------
     op.create_table(
-        "agents",
+        "gateways",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("agent_id", sa.String(255), nullable=False),
+        sa.Column("gateway_id", sa.String(255), nullable=False),
         sa.Column("hostname", sa.String(255), nullable=False),
         sa.Column("description", sa.Text, nullable=True),
         sa.Column(
             "status",
-            sa.Enum("active", "inactive", "unknown", name="agentstatus"),
+            sa.Enum("active", "inactive", "unknown", name="gatewaystatus"),
             nullable=False,
             server_default="unknown",
         ),
         sa.Column("last_heartbeat", sa.DateTime(timezone=True), nullable=True),
         sa.Column("labels_json", sa.Text, nullable=True, server_default="{}"),
     )
-    op.create_index("ix_agents_agent_id", "agents", ["agent_id"], unique=True)
+    op.create_index("ix_gateways_gateway_id", "gateways", ["gateway_id"], unique=True)
+
+    # ------------------------------------------------------------------
+    # targets
+    # ------------------------------------------------------------------
+    op.create_table(
+        "targets",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("target_id", sa.String(255), nullable=False),
+        sa.Column("hostname", sa.String(255), nullable=False),
+        sa.Column("description", sa.Text, nullable=True),
+        sa.Column(
+            "target_type",
+            sa.Enum("direct", "gateway_managed", name="targettype"),
+            nullable=False,
+            server_default="direct",
+        ),
+        sa.Column(
+            "gateway_id",
+            sa.String(36),
+            sa.ForeignKey("gateways.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column(
+            "status",
+            sa.Enum("active", "inactive", "unknown", name="targetstatus"),
+            nullable=False,
+            server_default="unknown",
+        ),
+        sa.Column("last_heartbeat", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("labels_json", sa.Text, nullable=True, server_default="{}"),
+    )
+    op.create_index("ix_targets_target_id", "targets", ["target_id"], unique=True)
+    op.create_index("ix_targets_gateway_id", "targets", ["gateway_id"])
 
     # ------------------------------------------------------------------
     # host_groups
@@ -64,17 +99,17 @@ def upgrade() -> None:
     op.create_index("ix_host_groups_name", "host_groups", ["name"], unique=True)
 
     # ------------------------------------------------------------------
-    # agent_group_memberships
+    # target_group_memberships
     # ------------------------------------------------------------------
     op.create_table(
-        "agent_group_memberships",
+        "target_group_memberships",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column(
-            "agent_id",
+            "target_id",
             sa.String(36),
-            sa.ForeignKey("agents.id", ondelete="CASCADE"),
+            sa.ForeignKey("targets.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
@@ -84,8 +119,8 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.create_index("ix_agm_agent_id", "agent_group_memberships", ["agent_id"])
-    op.create_index("ix_agm_group_id", "agent_group_memberships", ["group_id"])
+    op.create_index("ix_tgm_target_id", "target_group_memberships", ["target_id"])
+    op.create_index("ix_tgm_group_id", "target_group_memberships", ["group_id"])
 
     # ------------------------------------------------------------------
     # command_sets
@@ -119,7 +154,9 @@ def upgrade() -> None:
         sa.Column("binary", sa.String(512), nullable=False),
         sa.Column("args_regex", sa.Text, nullable=True),
         sa.Column("require_2fa", sa.Boolean, nullable=False, server_default="false"),
+        sa.Column("require_sudo", sa.Boolean, nullable=False, server_default="false"),
         sa.Column("description", sa.Text, nullable=True),
+        sa.Column("allowed_paths", sa.JSON, nullable=True, comment="Allowed filesystem path prefixes")
     )
     op.create_index("ix_commands_command_set_id", "commands", ["command_set_id"])
 
@@ -167,7 +204,7 @@ def upgrade() -> None:
         sa.Column("initiator_id", sa.String(255), nullable=False),
         sa.Column("initiator_type", sa.String(50), nullable=False, server_default="llm-agent"),
         sa.Column("action", sa.String(255), nullable=False),
-        sa.Column("target_agent_id", sa.String(255), nullable=True),
+        sa.Column("target_id", sa.String(255), nullable=True),
         sa.Column("target_host", sa.String(255), nullable=True),
         sa.Column("driver", sa.String(100), nullable=True),
         sa.Column("binary", sa.String(512), nullable=True),
@@ -184,16 +221,20 @@ def upgrade() -> None:
         sa.Column("twofa_challenge_id", sa.String(36), nullable=True),
         sa.Column("message_id", sa.String(36), nullable=False),
         sa.Column("request_id", sa.String(36), nullable=True),
+        sa.Column("stdout", sa.Text, nullable=True),
+        sa.Column("stderr", sa.Text, nullable=True),
+        sa.Column("exit_code", sa.Integer, nullable=True),
+        sa.Column("duration_ms", sa.Integer, nullable=True),
     )
     op.create_index("ix_audit_logs_event_time", "audit_logs", ["event_time"])
     op.create_index("ix_audit_logs_initiator_id", "audit_logs", ["initiator_id"])
-    op.create_index("ix_audit_logs_target_agent_id", "audit_logs", ["target_agent_id"])
+    op.create_index("ix_audit_logs_target_id", "audit_logs", ["target_id"])
     op.create_index("ix_audit_logs_outcome", "audit_logs", ["outcome"])
     op.create_index("ix_audit_logs_message_id", "audit_logs", ["message_id"])
     op.create_index("ix_audit_logs_request_id", "audit_logs", ["request_id"])
 
     # ------------------------------------------------------------------
-    # users  (standalone Admin API auth)
+    # users
     # ------------------------------------------------------------------
     op.create_table(
         "users",
@@ -246,11 +287,13 @@ def downgrade() -> None:
     op.drop_table("role_bindings")
     op.drop_table("commands")
     op.drop_table("command_sets")
-    op.drop_table("agent_group_memberships")
+    op.drop_table("target_group_memberships")
     op.drop_table("host_groups")
-    op.drop_table("agents")
+    op.drop_table("targets")
+    op.drop_table("gateways")
 
-    # Drop PostgreSQL enum types
     op.execute("DROP TYPE IF EXISTS challengestatus")
     op.execute("DROP TYPE IF EXISTS auditoutcome")
-    op.execute("DROP TYPE IF EXISTS agentstatus")
+    op.execute("DROP TYPE IF EXISTS targetstatus")
+    op.execute("DROP TYPE IF EXISTS targettype")
+    op.execute("DROP TYPE IF EXISTS gatewaystatus")

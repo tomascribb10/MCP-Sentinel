@@ -1,13 +1,13 @@
-# MCP-Sentinel — Test Agent Configuration
+# MCP-Sentinel — Test Target Configuration
 # ----------------------------------------
 # Used by docker-compose.agent-test.yml
 #
-# This agent lives on the same Docker network (sentinel-net) as the
+# This target lives on the same Docker network (sentinel-net) as the
 # control plane, so service names (rabbitmq, conductor) resolve directly.
 #
-# The agent_id is intentionally NOT set here so that it falls back to
+# The target_id is intentionally NOT set here so that it falls back to
 # socket.gethostname(), which Docker sets to the value of `hostname:`
-# in the compose file ("sentinel-agent-test").  That makes the identity
+# in the compose file ("sentinel-target-test").  That makes the identity
 # stable across container recreations without hard-coding it in config.
 #
 # Usage:
@@ -22,17 +22,18 @@ log_level = DEBUG
 transport_url = rabbit://sentinel:sentinel@rabbitmq:5672/sentinel
 rpc_topic_conductor = sentinel.conductor
 rpc_topic_scheduler = sentinel.scheduler
-agent_queue_prefix = sentinel.agent
+target_queue_prefix = sentinel.target
 rpc_timeout = 60
 
-[agent]
-# agent_id is intentionally left unset — resolved from hostname:
-# docker-compose.agent-test.yml sets hostname: sentinel-agent-test
+[target]
+# target_id is intentionally left unset — resolved from hostname:
+# docker-compose.agent-test.yml sets hostname: sentinel-target-test
 # which makes socket.gethostname() always return that value.
 # Uncomment to override:
-# agent_id = sentinel-agent-test
+# target_id = sentinel-target-test
 
 conductor_public_key_path = /etc/sentinel/conductor_public.pem
 heartbeat_interval_seconds = 30
 enabled_drivers = posix_bash
 execution_timeout_seconds = 300
+mode = direct

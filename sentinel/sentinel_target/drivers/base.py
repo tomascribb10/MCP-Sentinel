@@ -1,16 +1,16 @@
 """
-sentinel_agent.drivers.base
+sentinel_target.drivers.base
 ============================
 Abstract base class for all execution drivers loaded via stevedore.
 
-Stevedore namespace: ``sentinel.agent.drivers``
+Stevedore namespace: ``sentinel.target.drivers``
 
 Driver authors must subclass ``BaseDriver`` and implement:
   - ``validate_args(command, args)`` — validate args against policy regex BEFORE execution
   - ``execute(command, args, env, limits)`` — perform the actual execution
 
-Drivers are loaded by ``stevedore.driver.DriverManager`` in the agent.
-They MUST be registered in setup.cfg under ``sentinel.agent.drivers``.
+Drivers are loaded by ``stevedore.driver.DriverManager`` in the target.
+They MUST be registered in setup.cfg under ``sentinel.target.drivers``.
 """
 
 import abc
@@ -46,7 +46,7 @@ class BaseDriver(abc.ABC):
 
     def __init__(self, **kwargs):
         """
-        Drivers may receive keyword arguments from the agent configuration.
+        Drivers may receive keyword arguments from the target configuration.
         Subclasses should call super().__init__(**kwargs).
         """
 

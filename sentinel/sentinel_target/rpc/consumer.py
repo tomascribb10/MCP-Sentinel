@@ -1,20 +1,22 @@
 """
-sentinel_agent.rpc.consumer
+sentinel_target.rpc.consumer
 =============================
-oslo.messaging RPC endpoint for sentinel-agent.
+oslo.messaging RPC endpoint for sentinel-target.
 
-The agent exposes exactly ONE RPC method: ``execute_payload``.
-This minimal surface area is intentional — the agent should do
+The target exposes exactly ONE RPC method: ``execute_payload``.
+This minimal surface area is intentional — the target should do
 as little as possible beyond receiving, verifying and executing.
 
 Security sequence (MUST NOT be modified or reordered):
   1. ``PayloadVerifier.verify()``  — RSA-SHA256 + timestamp freshness.
   2. Parse into ``ExecutionPayload`` Pydantic model.
-  3. Check driver is in ``conf.agent.enabled_drivers`` whitelist.
+  3. Check driver is in ``conf.target.enabled_drivers`` whitelist.
   4. Load driver via stevedore.
   5. ``driver.validate_args()``    — second args check (defence in depth).
   6. ``driver.execute()``          — subprocess, NO shell=True.
   7. Return ``ExecutionResult`` as dict.
+
+Queue name: ``sentinel.target.<target_id>``
 """
 
 import logging
@@ -26,14 +28,14 @@ from stevedore import driver as stevedore_driver
 
 from common.exceptions import DriverNotFound, SignatureVerificationFailed
 from common.schemas.payload import ExecutionPayload
-from sentinel_agent.crypto import PayloadVerifier
+from sentinel_target.crypto import PayloadVerifier
 
 LOG = logging.getLogger(__name__)
 
 
-class AgentRPCEndpoint:
+class TargetRPCEndpoint:
     """
-    Single-method oslo.messaging endpoint for sentinel-agent.
+    Single-method oslo.messaging endpoint for sentinel-target.
 
     The ``target`` attribute declares the minimum server-side RPC version.
     oslo.messaging will refuse calls from clients requesting a higher version.
@@ -44,7 +46,7 @@ class AgentRPCEndpoint:
     def __init__(self, conf, verifier: PayloadVerifier, conductor_client) -> None:
         """
         Args:
-            conf:              oslo.config CONF (with [agent] group registered).
+            conf:              oslo.config CONF (with [target] group registered).
             verifier:          Initialised ``PayloadVerifier`` with conductor's public key.
             conductor_client:  oslo.messaging RPC client for casting results back.
         """
@@ -63,7 +65,7 @@ class AgentRPCEndpoint:
         Receive, verify and execute a signed execution payload.
 
         This method is called by oslo.messaging when a message arrives
-        on the agent's dedicated queue (``sentinel.agent.<agent_id>``).
+        on the target's dedicated queue (``sentinel.target.<target_id>``).
 
         Returns a result dict — oslo.messaging sends it back as the RPC reply.
         """
@@ -217,7 +219,7 @@ class AgentRPCEndpoint:
         if driver_name in self._driver_cache:
             return self._driver_cache[driver_name]
 
-        allowed = list(self._conf.agent.enabled_drivers)
+        allowed = list(self._conf.target.enabled_drivers)
         if driver_name not in allowed:
             raise DriverNotFound(
                 f"Driver {driver_name!r} is not in the allowed drivers list: {allowed}"
@@ -225,7 +227,7 @@ class AgentRPCEndpoint:
 
         try:
             mgr = stevedore_driver.DriverManager(
-                namespace="sentinel.agent.drivers",
+                namespace="sentinel.target.drivers",
                 name=driver_name,
                 invoke_on_load=True,
             )

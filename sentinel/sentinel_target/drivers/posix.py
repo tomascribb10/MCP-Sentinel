@@ -1,5 +1,5 @@
 """
-sentinel_agent.drivers.posix
+sentinel_target.drivers.posix
 ==============================
 BashDriver — executes commands via subprocess on POSIX systems.
 
@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from common.exceptions import ArgsRegexMismatch, DriverExecutionFailed, ExecutionTimeout, PathNotAllowed
 from common.schemas.payload import ExecutionLimits
-from sentinel_agent.drivers.base import BaseDriver, ExecutionResult
+from sentinel_target.drivers.base import BaseDriver, ExecutionResult
 
 
 class BashDriver(BaseDriver):
@@ -23,7 +23,7 @@ class BashDriver(BaseDriver):
     - Never uses shell=True (prevents shell injection).
     - Validates args against args_regex before spawning the process.
     - Enforces timeout and output byte limits.
-    - Runs as the unprivileged user of the sentinel-agent process.
+    - Runs as the unprivileged user of the sentinel-target process.
     """
 
     name = "posix_bash"

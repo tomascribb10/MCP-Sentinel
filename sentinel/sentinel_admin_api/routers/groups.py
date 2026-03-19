@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sentinel_admin_api.deps import ConductorDep, CurrentUserDep
 from sentinel_admin_api.schemas import (
-    AgentResponse, GroupMemberAdd,
+    TargetResponse, GroupMemberAdd,
     HostGroupCreate, HostGroupResponse, HostGroupUpdate,
 )
 
@@ -46,7 +46,7 @@ async def delete_group(group_id: str, conductor: ConductorDep, _: CurrentUserDep
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
 
-@router.get("/{group_id}/members", response_model=list[AgentResponse])
+@router.get("/{group_id}/members", response_model=list[TargetResponse])
 async def list_members(group_id: str, conductor: ConductorDep, _: CurrentUserDep):
     return conductor.call({}, "list_group_members", group_id=group_id)
 
@@ -55,19 +55,19 @@ async def list_members(group_id: str, conductor: ConductorDep, _: CurrentUserDep
 async def add_member(
     group_id: str, body: GroupMemberAdd, conductor: ConductorDep, _: CurrentUserDep
 ):
-    ok = conductor.call({}, "add_agent_to_group", group_id=group_id, agent_id=body.agent_id)
+    ok = conductor.call({}, "add_target_to_group", group_id=group_id, target_id=body.target_id)
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Group or agent not found",
+            detail="Group or target not found",
         )
 
 
-@router.delete("/{group_id}/members/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{group_id}/members/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_member(
-    group_id: str, agent_id: str, conductor: ConductorDep, _: CurrentUserDep
+    group_id: str, target_id: str, conductor: ConductorDep, _: CurrentUserDep
 ):
-    ok = conductor.call({}, "remove_agent_from_group", group_id=group_id, agent_id=agent_id)
+    ok = conductor.call({}, "remove_target_from_group", group_id=group_id, target_id=target_id)
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -1,0 +1,27 @@
+# MCP-Sentinel Target — minimal dependency list
+# ---------------------------------------------
+# Only the packages actually imported by sentinel-target.
+# Used by scripts/install-agent.sh to create a lean venv that does NOT
+# include the control-plane stack (FastAPI, SQLAlchemy, Telegram bot, etc.).
+#
+# Install sequence (handled by install-agent.sh):
+#   pip install -r requirements.target.txt
+#   pip install --no-deps /path/to/sentinel/   ← registers entry points without pulling deps
+
+# Async messaging (RabbitMQ)
+oslo.messaging>=14.0.0
+oslo.config>=9.0.0
+oslo.log>=5.0.0
+oslo.context>=5.0.0
+
+# Plugin management (stevedore driver loading)
+stevedore>=5.0.0
+
+# Data validation (ExecutionPayload, ExecutionRequest schemas)
+pydantic>=2.0.0
+
+# Cryptography (RSA-SHA256 payload verification)
+cryptography>=41.0.0
+
+# Retry / resilience
+tenacity>=8.2.0

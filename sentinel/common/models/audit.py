@@ -63,7 +63,7 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Target — where it was executed
-    target_agent_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    target_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     target_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Execution detail
@@ -85,7 +85,7 @@ class AuditLog(Base):
     twofa_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     twofa_challenge_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    # Execution output (populated by report_execution_result from the agent)
+    # Execution output (populated by report_execution_result from the target)
     stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
     stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)

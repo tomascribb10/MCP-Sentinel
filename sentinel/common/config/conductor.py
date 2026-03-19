@@ -12,7 +12,7 @@ conductor_opts = [
         "public_key_path",
         default="/etc/sentinel/conductor_public.pem",
         help=(
-            "Path to the RSA public key distributed to sentinel-agents "
+            "Path to the RSA public key distributed to sentinel-targets "
             "for payload signature verification."
         ),
     ),

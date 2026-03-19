@@ -1,19 +1,25 @@
 """
-sentinel_agent.main
+sentinel_target.main
 ====================
-Service entry point for sentinel-agent.
+Service entry point for sentinel-target.
 
 Startup sequence:
   1. Register oslo.config option groups.
   2. Parse CLI args / config file.
   3. Configure logging.
-  4. Determine agent_id (from config or hostname).
+  4. Determine target_id (from config or hostname).
   5. Load conductor's RSA public key (PayloadVerifier).
   6. Start heartbeat thread → periodic casts to sentinel.scheduler.
-  7. Start oslo.messaging RPC server on topic ``sentinel.agent.<agent_id>``
+  7. Start oslo.messaging RPC server on topic ``sentinel.target.<target_id>``
      (blocking until SIGINT/SIGTERM).
 
-Security note: the agent opens NO listening network sockets.
+Operating modes
+---------------
+  direct  — executes commands locally via stevedore drivers.
+  gateway — proxies execution to managed remote targets; also registers
+            managed targets on their behalf via heartbeats.
+
+Security note: sentinel-target opens NO listening network sockets.
 All communication is outbound to RabbitMQ only.
 """
 
@@ -27,51 +33,54 @@ import time
 from oslo_config import cfg
 from oslo_log import log as oslo_log
 
-from common.config.agent import agent_group, agent_opts
+from common.config.target import gateway_group, gateway_opts, target_group, target_opts
 from common.config.messaging import messaging_group, messaging_opts
 from common.messaging.rpc import get_rpc_client, get_rpc_server
 from common.messaging.transport import get_transport
-from common.schemas.requests import AgentHeartbeat
-from sentinel_agent.crypto import PayloadVerifier
-from sentinel_agent.rpc.consumer import AgentRPCEndpoint
+from common.schemas.requests import TargetHeartbeat
+from sentinel_target.crypto import PayloadVerifier
+from sentinel_target.rpc.consumer import TargetRPCEndpoint
 
 CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
-SERVICE_NAME = "sentinel-agent"
+SERVICE_NAME = "sentinel-target"
 
 
 def _register_opts() -> None:
-    CONF.register_group(agent_group)
-    CONF.register_opts(agent_opts, group=agent_group)
+    CONF.register_group(target_group)
+    CONF.register_opts(target_opts, group=target_group)
+
+    CONF.register_group(gateway_group)
+    CONF.register_opts(gateway_opts, group=gateway_group)
 
     CONF.register_group(messaging_group)
     CONF.register_opts(messaging_opts, group=messaging_group)
 
 
-def _resolve_agent_id(conf) -> str:
-    """Return agent_id from config or fall back to the system hostname."""
-    configured = conf.agent.agent_id
+def _resolve_target_id(conf) -> str:
+    """Return target_id from config or fall back to the system hostname."""
+    configured = conf.target.target_id
     if configured:
         return configured
     hostname = socket.gethostname()
-    LOG.info("No agent_id configured — using hostname: %r", hostname)
+    LOG.info("No target_id configured — using hostname: %r", hostname)
     return hostname
 
 
 class _HeartbeatThread(threading.Thread):
     """
-    Daemon thread that periodically casts AgentHeartbeat messages to
+    Daemon thread that periodically casts TargetHeartbeat messages to
     sentinel-scheduler's RPC topic.
 
     Uses oslo.messaging ``cast`` (fire-and-forget) — scheduler downtime
-    does NOT block agent operation.
+    does NOT block target operation.
     """
 
-    def __init__(self, conf, agent_id: str, transport) -> None:
-        super().__init__(daemon=True, name="agent-heartbeat")
+    def __init__(self, conf, target_id: str, transport) -> None:
+        super().__init__(daemon=True, name="target-heartbeat")
         self._conf = conf
-        self._agent_id = agent_id
+        self._target_id = target_id
         self._transport = transport
         self._stop_event = threading.Event()
 
@@ -79,29 +88,30 @@ class _HeartbeatThread(threading.Thread):
         self._stop_event.set()
 
     def run(self) -> None:
-        interval = self._conf.agent.heartbeat_interval_seconds
+        interval = self._conf.target.heartbeat_interval_seconds
         client = get_rpc_client(
             self._transport,
             topic=self._conf.messaging.rpc_topic_scheduler,
         )
 
+        mode = self._conf.target.mode
         LOG.info(
-            "Heartbeat thread started: agent_id=%r interval=%ds",
-            self._agent_id, interval,
+            "Heartbeat thread started: target_id=%r mode=%r interval=%ds",
+            self._target_id, mode, interval,
         )
 
         while not self._stop_event.is_set():
-            heartbeat = AgentHeartbeat(
-                agent_id=self._agent_id,
+            heartbeat = TargetHeartbeat(
+                target_id=self._target_id,
                 hostname=socket.gethostname(),
+                target_type=mode,
                 status="active",
-                enabled_drivers=list(self._conf.agent.enabled_drivers),
+                enabled_drivers=list(self._conf.target.enabled_drivers),
             )
             try:
-                client.cast({}, "agent_heartbeat", heartbeat=heartbeat.model_dump(mode="json"))
-                LOG.debug("Heartbeat sent: agent_id=%r", self._agent_id)
+                client.cast({}, "target_heartbeat", heartbeat=heartbeat.model_dump(mode="json"))
+                LOG.debug("Heartbeat sent: target_id=%r", self._target_id)
             except Exception as exc:
-                # Heartbeat failure is non-fatal — log and continue
                 LOG.warning("Heartbeat failed: %s", exc)
 
             self._stop_event.wait(timeout=interval)
@@ -121,8 +131,9 @@ def main() -> None:
 
     oslo_log.setup(CONF, SERVICE_NAME)
 
-    agent_id = _resolve_agent_id(CONF)
-    LOG.info("Starting %s agent_id=%r", SERVICE_NAME, agent_id)
+    target_id = _resolve_target_id(CONF)
+    mode = CONF.target.mode
+    LOG.info("Starting %s target_id=%r mode=%r", SERVICE_NAME, target_id, mode)
 
     # Load conductor's public key for payload verification
     try:
@@ -132,7 +143,7 @@ def main() -> None:
         LOG.critical(
             "Conductor public key not found at %s. "
             "Ensure the keygen container has run.",
-            CONF.agent.conductor_public_key_path,
+            CONF.target.conductor_public_key_path,
         )
         sys.exit(1)
 
@@ -145,31 +156,32 @@ def main() -> None:
     )
 
     # Start heartbeat daemon
-    heartbeat = _HeartbeatThread(CONF, agent_id, transport)
+    heartbeat = _HeartbeatThread(CONF, target_id, transport)
     heartbeat.start()
 
     # Build RPC endpoint
-    endpoint = AgentRPCEndpoint(
+    endpoint = TargetRPCEndpoint(
         conf=CONF,
         verifier=verifier,
         conductor_client=conductor_client,
     )
 
-    # Start RPC server on the agent's dedicated queue
-    # Topic: sentinel.agent  Server: <agent_id>
-    # → queue name: sentinel.agent.<agent_id>
+    # Start RPC server on the target's dedicated queue
+    # Topic: sentinel.target  Server: <target_id>
+    # → queue name: sentinel.target.<target_id>
     server = get_rpc_server(
         transport,
-        topic=CONF.messaging.agent_queue_prefix,
+        topic=CONF.messaging.target_queue_prefix,
         endpoints=[endpoint],
-        server=agent_id,
+        server=target_id,
         executor="threading",
     )
 
     LOG.info(
-        "RPC server listening on topic=%r server=%r",
-        CONF.messaging.agent_queue_prefix,
-        agent_id,
+        "RPC server listening on topic=%r server=%r mode=%r",
+        CONF.messaging.target_queue_prefix,
+        target_id,
+        mode,
     )
 
     try:

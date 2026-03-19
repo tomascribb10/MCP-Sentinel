@@ -5,12 +5,12 @@ RBAC evaluation engine — the policy decision point of sentinel-conductor.
 
 Authorization flow
 ------------------
-Given an ExecutionRequest(initiator_id, target_agent_id, driver, command, args):
+Given an ExecutionRequest(initiator_id, target_id, driver, command, args):
 
-  1. Resolve the target agent → get its Host Group memberships.
+  1. Resolve the target → get its Host Group memberships.
   2. Find active RoleBindings where:
        principal_id == initiator_id
-       AND target_group is one the agent belongs to.
+       AND target_group is one the target belongs to.
   3. For each matching RoleBinding, inspect its CommandSet:
        a. CommandSet.driver must match request.driver.
        b. Find a Command where binary == request.command.
@@ -29,16 +29,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from common.exceptions import (
-    AgentNotFound,
-    AgentNotInGroup,
+    TargetNotFound,
+    TargetNotInGroup,
     ArgsRegexMismatch,
     CommandNotAllowed,
     PathNotAllowed,
     PolicyDenied,
 )
 from common.models import (
-    Agent,
-    AgentGroupMembership,
+    Target,
+    TargetGroupMembership,
     Command,
     CommandSet,
     RoleBinding,
@@ -78,8 +78,8 @@ class RBACEngine:
         Evaluate all applicable policies and return an AuthorizationResult.
 
         Raises:
-            AgentNotFound:     target agent is not registered.
-            AgentNotInGroup:   target agent has no group memberships.
+            TargetNotFound:     target is not registered.
+            TargetNotInGroup:   target has no group memberships.
             PolicyDenied:      no active binding grants this principal access.
             CommandNotAllowed: command not found in any applicable CommandSet.
             ArgsRegexMismatch: command found but args don't match any pattern.
@@ -88,50 +88,50 @@ class RBACEngine:
         args_str = " ".join(request.args)
 
         # ------------------------------------------------------------------
-        # 1. Resolve target agent
+        # 1. Resolve target
         # ------------------------------------------------------------------
-        agent: Agent | None = self._session.scalar(
-            select(Agent).where(Agent.agent_id == request.target_agent_id)
+        target: Target | None = self._session.scalar(
+            select(Target).where(Target.target_id == request.target_id)
         )
-        if agent is None:
-            raise AgentNotFound(
-                f"Agent {request.target_agent_id!r} is not registered in the system."
+        if target is None:
+            raise TargetNotFound(
+                f"Target {request.target_id!r} is not registered in the system."
             )
 
         # ------------------------------------------------------------------
-        # 2. Get the agent's group memberships
+        # 2. Get the target's group memberships
         # ------------------------------------------------------------------
         memberships = self._session.scalars(
-            select(AgentGroupMembership).where(
-                AgentGroupMembership.agent_id == agent.id
+            select(TargetGroupMembership).where(
+                TargetGroupMembership.target_id == target.id
             )
         ).all()
-        agent_group_ids = {m.group_id for m in memberships}
+        target_group_ids = {m.group_id for m in memberships}
 
-        if not agent_group_ids:
-            raise AgentNotInGroup(
-                f"Agent {request.target_agent_id!r} does not belong to any Host Group."
+        if not target_group_ids:
+            raise TargetNotInGroup(
+                f"Target {request.target_id!r} does not belong to any Host Group."
             )
 
         # ------------------------------------------------------------------
-        # 3. Find active RoleBindings for this principal + agent's groups
+        # 3. Find active RoleBindings for this principal + target's groups
         # ------------------------------------------------------------------
         bindings = self._session.scalars(
             select(RoleBinding).where(
                 RoleBinding.principal_id == request.initiator_id,
                 RoleBinding.enabled.is_(True),
-                RoleBinding.target_group_id.in_(agent_group_ids),
+                RoleBinding.target_group_id.in_(target_group_ids),
             )
         ).all()
 
         if not bindings:
             LOG.warning(
-                "RBAC DENY (no binding): principal=%r agent=%r",
-                request.initiator_id, request.target_agent_id,
+                "RBAC DENY (no binding): principal=%r target=%r",
+                request.initiator_id, request.target_id,
             )
             raise PolicyDenied(
                 f"No active policy grants principal {request.initiator_id!r} "
-                f"access to agent {request.target_agent_id!r}."
+                f"access to target {request.target_id!r}."
             )
 
         # ------------------------------------------------------------------
@@ -176,10 +176,10 @@ class RBACEngine:
 
                 # ----- AUTHORIZED -----
                 LOG.info(
-                    "RBAC ALLOW: principal=%r command=%r args=%r agent=%r "
+                    "RBAC ALLOW: principal=%r command=%r args=%r target=%r "
                     "(set=%r cmd=%r requires_2fa=%s requires_sudo=%s)",
                     request.initiator_id, request.command, args_str,
-                    request.target_agent_id, command_set.name, cmd.name,
+                    request.target_id, command_set.name, cmd.name,
                     cmd.require_2fa, cmd.require_sudo,
                 )
                 return AuthorizationResult(
@@ -194,9 +194,9 @@ class RBACEngine:
         # 5. Deny with the most descriptive error
         # ------------------------------------------------------------------
         LOG.warning(
-            "RBAC DENY: principal=%r command=%r args=%r driver=%r agent=%r",
+            "RBAC DENY: principal=%r command=%r args=%r driver=%r target=%r",
             request.initiator_id, request.command, args_str,
-            request.driver, request.target_agent_id,
+            request.driver, request.target_id,
         )
 
         if found_command_match:

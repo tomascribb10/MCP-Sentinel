@@ -11,10 +11,13 @@ Endpoints
 ---------
   POST   /auth/login
   GET    /auth/me
-  GET    /agents
-  GET    /agents/{id}
-  PATCH  /agents/{id}
-  DELETE /agents/{id}
+  GET    /targets
+  GET    /targets/{id}
+  PATCH  /targets/{id}
+  DELETE /targets/{id}
+  GET    /targets/{id}/groups
+  GET    /gateways
+  GET    /gateways/{id}
   GET    /groups
   POST   /groups
   GET    /groups/{id}
@@ -22,7 +25,7 @@ Endpoints
   DELETE /groups/{id}
   GET    /groups/{id}/members
   POST   /groups/{id}/members
-  DELETE /groups/{id}/members/{agent_id}
+  DELETE /groups/{id}/members/{target_id}
   GET    /command-sets
   POST   /command-sets
   GET    /command-sets/{id}
@@ -57,7 +60,7 @@ from common.messaging.rpc import get_rpc_client
 from common.messaging.transport import get_transport
 from sentinel_admin_api import deps
 from sentinel_admin_api.routers import (
-    agents, audit, auth, commandsets, groups, policies, users,
+    targets, gateways, audit, auth, commandsets, groups, policies, users,
 )
 
 CONF = cfg.CONF
@@ -87,7 +90,8 @@ def create_app() -> FastAPI:
 
     # Register all routers
     app.include_router(auth.router)
-    app.include_router(agents.router)
+    app.include_router(targets.router)
+    app.include_router(gateways.router)
     app.include_router(groups.router)
     app.include_router(commandsets.router)
     app.include_router(policies.router)

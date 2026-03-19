@@ -9,15 +9,15 @@ Protocol reference: https://modelcontextprotocol.io/specification
 MCP tools exposed
 -----------------
 execute_command
-    Ask an agent to run a command.  The conductor performs RBAC + optional
+    Ask a target to run a command.  The conductor performs RBAC + optional
     2FA before dispatch.  Returns immediately; use ``get_execution_status``
     to poll for the result.
 
 get_execution_status
     Poll the audit log for the outcome of a previously submitted command.
 
-list_agents
-    Return the list of known agents from sentinel-scheduler.
+list_targets
+    Return the list of known targets from sentinel-scheduler.
 
 MCP transport
 -------------
@@ -70,15 +70,15 @@ a Zero Trust command execution framework.
 ## Your capabilities
 
 Use the available tools to manage infrastructure:
-- `list_agents`: See all registered agents and their liveness status.
+- `list_targets`: See all registered targets and their liveness status.
 - `list_allowed_commands`: Discover which commands you are authorised to run \
 and on which hosts. Call this BEFORE attempting any execution.
-- `execute_command`: Execute an authorised command on a target agent.
+- `execute_command`: Execute an authorised command on a target.
 - `get_execution_status`: Poll for the result of a previously submitted command.
 
 ## Mandatory workflow
 
-1. Call `list_agents` to identify live hosts.
+1. Call `list_targets` to identify live hosts.
 2. Call `list_allowed_commands` with your `initiator_id` to discover what \
 you may run. Never assume — always verify.
 3. Before executing, explain to the user exactly what command you will run, \
@@ -168,21 +168,21 @@ TOOLS = [
     {
         "name": "execute_command",
         "description": (
-            "Execute a whitelisted command on a target agent. "
+            "Execute a whitelisted command on a target. "
             "Returns immediately with a request_id. "
             "Use get_execution_status to poll for results."
         ),
         "inputSchema": {
             "type": "object",
-            "required": ["initiator_id", "target_agent_id", "driver", "command"],
+            "required": ["initiator_id", "target_id", "driver", "command"],
             "properties": {
                 "initiator_id": {
                     "type": "string",
                     "description": "Identity of the requesting AI agent (e.g. 'llm-agent-claude').",
                 },
-                "target_agent_id": {
+                "target_id": {
                     "type": "string",
-                    "description": "agent_id of the target sentinel-agent.",
+                    "description": "target_id of the destination sentinel-target.",
                 },
                 "driver": {
                     "type": "string",
@@ -222,8 +222,8 @@ TOOLS = [
         },
     },
     {
-        "name": "list_agents",
-        "description": "Return the list of registered sentinel-agents and their liveness status.",
+        "name": "list_targets",
+        "description": "Return the list of registered sentinel-targets and their liveness status.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -244,9 +244,9 @@ TOOLS = [
                     "type": "string",
                     "description": "Identity of the requesting AI agent (must match the principal_id in the RBAC policy).",
                 },
-                "target_agent_id": {
+                "target_id": {
                     "type": "string",
-                    "description": "Optional — filter results to a specific agent.",
+                    "description": "Optional — filter results to a specific target.",
                 },
             },
         },
@@ -259,14 +259,14 @@ TOOLS = [
 # ---------------------------------------------------------------------------
 
 def _handle_execute_command(params: dict, request_id: Any) -> dict:
-    required = {"initiator_id", "target_agent_id", "driver", "command"}
+    required = {"initiator_id", "target_id", "driver", "command"}
     missing = required - params.keys()
     if missing:
         return _err(request_id, -32602, f"Missing required parameters: {missing}")
 
     rpc_request = {
         "initiator_id": params["initiator_id"],
-        "target_agent_id": params["target_agent_id"],
+        "target_id": params["target_id"],
         "driver": params["driver"],
         "command": params["command"],
         "args": params.get("args", []),
@@ -295,7 +295,7 @@ def _handle_execute_command(params: dict, request_id: Any) -> dict:
         }
     ]
 
-    if status_val in ("denied", "error", "agent_unreachable"):
+    if status_val in ("denied", "error", "target_unreachable"):
         return _ok(request_id, {"content": content, "isError": True})
 
     return _ok(request_id, {"content": content})
@@ -322,7 +322,7 @@ def _handle_get_execution_status(params: dict, request_id: Any) -> dict:
         f"Request ID: {audit['request_id']}\n"
         f"Outcome: {outcome}\n"
         f"Action: {audit['action']}\n"
-        f"Target Agent: {audit['target_agent_id']}\n"
+        f"Target: {audit['target_id']}\n"
         f"Event Time: {audit['event_time']}\n"
     )
     if audit.get("reason"):
@@ -347,57 +347,57 @@ def _handle_list_allowed_commands(params: dict, request_id: Any) -> dict:
     if not initiator_id:
         return _err(request_id, -32602, "Missing required parameter: initiator_id")
 
-    target_agent_id = params.get("target_agent_id")
+    target_id = params.get("target_id")
 
     try:
         rows = _get_conductor().call(
             {},
             "list_allowed_commands",
             initiator_id=initiator_id,
-            target_agent_id=target_agent_id,
+            target_id=target_id,
         )
     except Exception as exc:
         return _err(request_id, -32603, f"Internal error: {exc}")
 
     if not rows:
         text = f"No commands authorised for initiator '{initiator_id}'."
-        if target_agent_id:
-            text += f" (filtered to agent '{target_agent_id}')"
+        if target_id:
+            text += f" (filtered to target '{target_id}')"
         return _ok(request_id, {"content": [{"type": "text", "text": text}]})
 
     lines = [f"Authorised commands for '{initiator_id}':\n"]
     for r in rows:
-        agents_str = ", ".join(
-            f"{a['agent_id']} ({a['hostname']}, {a['status']})" for a in r["agents"]
+        targets_str = ", ".join(
+            f"{t['target_id']} ({t['hostname']}, {t['status']})" for t in r["targets"]
         )
-        twofa = "⚠ requires 2FA" if r["require_2fa"] else "no 2FA"
+        twofa = "requires 2FA" if r["require_2fa"] else "no 2FA"
         lines.append(
             f"  [{r['driver']}] {r['binary']}"
             + (f"  args: {r['args_regex']}" if r["args_regex"] else "  args: (none)")
             + f"  — {twofa}"
-            + f"\n    hosts: {agents_str}"
+            + f"\n    hosts: {targets_str}"
         )
 
     return _ok(request_id, {"content": [{"type": "text", "text": "\n".join(lines)}]})
 
 
-def _handle_list_agents(params: dict, request_id: Any) -> dict:
+def _handle_list_targets(params: dict, request_id: Any) -> dict:
     try:
-        agents = _get_scheduler().call({}, "list_agents")
+        targets = _get_scheduler().call({}, "list_targets")
     except Exception as exc:
-        LOG.error("scheduler.list_agents failed: %s", exc)
+        LOG.error("scheduler.list_targets failed: %s", exc)
         # Fall back to conductor DB query
         try:
-            agents = _get_conductor().call({}, "list_agents")
+            targets = _get_conductor().call({}, "list_targets")
         except Exception as exc2:
             return _err(request_id, -32603, f"Internal error: {exc2}")
 
-    lines = ["Registered agents:\n"]
-    for a in agents:
-        alive = "✓" if a.get("alive", a.get("status") == "active") else "✗"
+    lines = ["Registered targets:\n"]
+    for t in targets:
+        alive = "+" if t.get("alive", t.get("status") == "active") else "-"
         lines.append(
-            f"  [{alive}] {a['agent_id']} ({a.get('hostname', '?')}) "
-            f"— status={a.get('status', '?')}"
+            f"  [{alive}] {t['target_id']} ({t.get('hostname', '?')}) "
+            f"— status={t.get('status', '?')}"
         )
 
     return _ok(request_id, {
@@ -530,8 +530,8 @@ def _dispatch(body: dict) -> dict:
             return _handle_execute_command(tool_args, request_id)
         if tool_name == "get_execution_status":
             return _handle_get_execution_status(tool_args, request_id)
-        if tool_name == "list_agents":
-            return _handle_list_agents(tool_args, request_id)
+        if tool_name == "list_targets":
+            return _handle_list_targets(tool_args, request_id)
         if tool_name == "list_allowed_commands":
             return _handle_list_allowed_commands(tool_args, request_id)
 

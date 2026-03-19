@@ -8,7 +8,8 @@ from common.schemas.payload import (
 )
 from common.schemas.requests import (
     ExecutionRequest,
-    AgentHeartbeat,
+    TargetHeartbeat,
+    GatewayHeartbeat,
 )
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "ExecutionPayload",
     "ExecutionResult",
     "ExecutionRequest",
-    "AgentHeartbeat",
+    "TargetHeartbeat",
+    "GatewayHeartbeat",
 ]

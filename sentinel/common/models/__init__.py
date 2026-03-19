@@ -8,16 +8,18 @@ Only ``sentinel-conductor`` should instantiate DB sessions.
 """
 
 from common.models.base import Base
-from common.models.agent import Agent, AgentStatus
-from common.models.group import HostGroup, AgentGroupMembership
+from common.models.gateway import Gateway, GatewayStatus
+from common.models.target import Target, TargetStatus, TargetType
+from common.models.group import HostGroup, TargetGroupMembership
 from common.models.policy import CommandSet, Command, RoleBinding
 from common.models.audit import AuditLog, AuditOutcome
 from common.models.auth import User, TwoFAChallenge, ChallengeStatus
 
 __all__ = [
     "Base",
-    "Agent", "AgentStatus",
-    "HostGroup", "AgentGroupMembership",
+    "Gateway", "GatewayStatus",
+    "Target", "TargetStatus", "TargetType",
+    "HostGroup", "TargetGroupMembership",
     "CommandSet", "Command", "RoleBinding",
     "AuditLog", "AuditOutcome",
     "User", "TwoFAChallenge", "ChallengeStatus",

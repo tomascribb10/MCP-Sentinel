@@ -5,30 +5,30 @@ Service entry point and RPC endpoint for sentinel-scheduler.
 
 Responsibilities
 ----------------
-1. **Heartbeat reception**: receives ``agent_heartbeat`` casts from all
-   sentinel-agent daemons and maintains an in-memory liveness registry.
+1. **Heartbeat reception**: receives ``target_heartbeat`` casts from all
+   sentinel-target daemons and maintains an in-memory liveness registry.
 
 2. **DB persistence**: after each heartbeat, calls
-   ``conductor.update_agent_status()`` via RPC so the conductor can
-   persist agent state to the central DB (conductor is the only component
+   ``conductor.update_target_status()`` via RPC so the conductor can
+   persist target state to the central DB (conductor is the only component
    with DB access).
 
 3. **Execution routing**: receives ``dispatch`` calls from the conductor
-   (after RBAC + signing), performs an agent liveness check, and casts
-   the signed payload to the agent's dedicated queue
-   ``sentinel.agent.<agent_id>``.
+   (after RBAC + signing), performs a target liveness check, and casts
+   the signed payload to the target's dedicated queue
+   ``sentinel.target.<target_id>``.
 
 Message flow
 ------------
-  Agent  ──cast──►  Scheduler.agent_heartbeat()
+  Target  ──cast──►  Scheduler.target_heartbeat()
                          └─ registry.update()
-                         └─ conductor.update_agent_status()  [cast, non-blocking]
+                         └─ conductor.update_target_status()  [cast, non-blocking]
 
-  Conductor  ──call──►  Scheduler.dispatch(payload, agent_id)
-                             └─ registry.is_alive(agent_id) ?
-                             │      YES → cast to sentinel.agent.<agent_id>
+  Conductor  ──call──►  Scheduler.dispatch(payload, target_id)
+                             └─ registry.is_alive(target_id) ?
+                             │      YES → cast to sentinel.target.<target_id>
                              │             return {"status": "queued"}
-                             └─────── NO  → return {"status": "agent_unreachable"}
+                             └─────── NO  → return {"status": "target_unreachable"}
 """
 
 import json
@@ -47,24 +47,24 @@ from oslo_log import log as oslo_log
 from common.config.messaging import messaging_group, messaging_opts
 from common.messaging.rpc import get_rpc_client, get_rpc_server
 from common.messaging.transport import get_transport
-from common.schemas.requests import AgentHeartbeat
+from common.schemas.requests import TargetHeartbeat, GatewayHeartbeat
 
 CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 SERVICE_NAME = "sentinel-scheduler"
 
-# An agent is considered dead after (heartbeat_interval * LIVENESS_MULTIPLIER) seconds.
+# A target is considered dead after (heartbeat_interval * LIVENESS_MULTIPLIER) seconds.
 LIVENESS_MULTIPLIER = 3
 
 
 # ---------------------------------------------------------------------------
-# In-memory agent registry
+# In-memory target registry
 # ---------------------------------------------------------------------------
 
 @dataclass
-class _AgentRecord:
-    agent_id: str
+class _TargetRecord:
+    target_id: str
     hostname: str
     status: str
     last_seen: datetime
@@ -72,22 +72,22 @@ class _AgentRecord:
     labels: dict = field(default_factory=dict)
 
 
-class _AgentRegistry:
+class _TargetRegistry:
     """
-    Thread-safe in-memory registry of known agents and their liveness.
+    Thread-safe in-memory registry of known targets and their liveness.
 
     The registry is authoritative for routing decisions.
     Persistence is delegated to the conductor via RPC.
     """
 
     def __init__(self) -> None:
-        self._agents: dict[str, _AgentRecord] = {}
+        self._targets: dict[str, _TargetRecord] = {}
         self._lock = threading.RLock()
 
-    def update(self, heartbeat: AgentHeartbeat) -> None:
+    def update(self, heartbeat: TargetHeartbeat) -> None:
         with self._lock:
-            self._agents[heartbeat.agent_id] = _AgentRecord(
-                agent_id=heartbeat.agent_id,
+            self._targets[heartbeat.target_id] = _TargetRecord(
+                target_id=heartbeat.target_id,
                 hostname=heartbeat.hostname,
                 status=heartbeat.status,
                 last_seen=datetime.now(timezone.utc),
@@ -95,10 +95,10 @@ class _AgentRegistry:
                 labels=heartbeat.labels,
             )
 
-    def is_alive(self, agent_id: str, heartbeat_interval_seconds: int) -> bool:
-        """Return True if the agent's last heartbeat is within the liveness window."""
+    def is_alive(self, target_id: str, heartbeat_interval_seconds: int) -> bool:
+        """Return True if the target's last heartbeat is within the liveness window."""
         with self._lock:
-            record = self._agents.get(agent_id)
+            record = self._targets.get(target_id)
             if record is None:
                 return False
             threshold = heartbeat_interval_seconds * LIVENESS_MULTIPLIER
@@ -107,41 +107,41 @@ class _AgentRegistry:
 
     def mark_stale(self, heartbeat_interval_seconds: int) -> list[str]:
         """
-        Mark agents that have exceeded the liveness window as 'inactive'.
-        Returns the list of agent_ids that were marked stale.
+        Mark targets that have exceeded the liveness window as 'inactive'.
+        Returns the list of target_ids that were marked stale.
         """
         stale = []
         with self._lock:
             threshold = heartbeat_interval_seconds * LIVENESS_MULTIPLIER
             now = datetime.now(timezone.utc)
-            for agent_id, record in self._agents.items():
+            for target_id, record in self._targets.items():
                 age = (now - record.last_seen).total_seconds()
                 if age > threshold and record.status != "inactive":
                     record.status = "inactive"
-                    stale.append(agent_id)
+                    stale.append(target_id)
         return stale
 
-    def get_all(self) -> list[_AgentRecord]:
+    def get_all(self) -> list[_TargetRecord]:
         with self._lock:
-            return list(self._agents.values())
+            return list(self._targets.values())
 
-    def get(self, agent_id: str) -> _AgentRecord | None:
+    def get(self, target_id: str) -> _TargetRecord | None:
         with self._lock:
-            return self._agents.get(agent_id)
+            return self._targets.get(target_id)
 
 
 # ---------------------------------------------------------------------------
-# Stale-agent reaper (background daemon thread)
+# Stale-target reaper (background daemon thread)
 # ---------------------------------------------------------------------------
 
-class _StaleAgentReaper(threading.Thread):
+class _StaleTargetReaper(threading.Thread):
     """
-    Periodically scans the registry for agents that have stopped sending
+    Periodically scans the registry for targets that have stopped sending
     heartbeats and notifies the conductor to update their DB status.
     """
 
-    def __init__(self, conf, registry: _AgentRegistry, get_conductor_client_fn) -> None:
-        super().__init__(daemon=True, name="stale-agent-reaper")
+    def __init__(self, conf, registry: _TargetRegistry, get_conductor_client_fn) -> None:
+        super().__init__(daemon=True, name="stale-target-reaper")
         self._conf = conf
         self._registry = registry
         self._get_conductor_client = get_conductor_client_fn
@@ -153,19 +153,18 @@ class _StaleAgentReaper(threading.Thread):
     def run(self) -> None:
         # Check every heartbeat_interval seconds
         # We need a default here since the reaper is started before CONF is fully wired
-        interval = getattr(self._conf.messaging, "rpc_timeout", 60)
-        heartbeat_interval = 30  # sensible default; overridden via oslo.config in agent
+        heartbeat_interval = 30  # sensible default; overridden via oslo.config in target
 
         while not self._stop.wait(timeout=heartbeat_interval):
             stale = self._registry.mark_stale(heartbeat_interval)
-            for agent_id in stale:
-                LOG.warning("Agent %r has gone stale (no heartbeat)", agent_id)
+            for target_id in stale:
+                LOG.warning("Target %r has gone stale (no heartbeat)", target_id)
                 try:
                     client = self._get_conductor_client()
                     client.cast(
                         {},
-                        "update_agent_status",
-                        agent_id=agent_id,
+                        "update_target_status",
+                        target_id=target_id,
                         hostname="",
                         status="inactive",
                         last_heartbeat=datetime.now(timezone.utc).isoformat(),
@@ -174,7 +173,7 @@ class _StaleAgentReaper(threading.Thread):
                     )
                 except Exception as exc:
                     LOG.error(
-                        "Failed to notify conductor of stale agent %r: %s", agent_id, exc
+                        "Failed to notify conductor of stale target %r: %s", target_id, exc
                     )
 
 
@@ -188,14 +187,15 @@ class SchedulerRPCEndpoint:
 
     Methods
     -------
-    agent_heartbeat   — cast from sentinel-agent (no reply needed)
+    target_heartbeat  — cast from sentinel-target (no reply needed)
+    gateway_heartbeat — cast from sentinel-target in gateway mode (no reply needed)
     dispatch          — call from sentinel-conductor (returns routing result)
-    list_agents       — call from conductor/CLI for observability
+    list_targets      — call from conductor/CLI for observability
     """
 
     target = oslo_messaging.Target(version="1.0")
 
-    def __init__(self, conf, registry: _AgentRegistry, transport) -> None:
+    def __init__(self, conf, registry: _TargetRegistry, transport) -> None:
         self._conf = conf
         self._registry = registry
         self._transport = transport
@@ -215,116 +215,155 @@ class SchedulerRPCEndpoint:
         return self._conductor_client
 
     # ------------------------------------------------------------------
-    # agent_heartbeat — cast from agents (no return value required)
+    # target_heartbeat — cast from targets (no return value required)
     # ------------------------------------------------------------------
 
-    def agent_heartbeat(self, ctxt: dict, heartbeat: dict) -> None:
+    def target_heartbeat(self, ctxt: dict, heartbeat: dict) -> None:
         """
-        Receive a heartbeat from a sentinel-agent and update the registry.
+        Receive a heartbeat from a sentinel-target and update the registry.
 
-        Also notifies the conductor to persist the agent status to DB.
+        Also notifies the conductor to persist the target status to DB.
         This method is called via ``cast`` so it returns nothing.
         """
         try:
-            hb = AgentHeartbeat(**heartbeat)
+            hb = TargetHeartbeat(**heartbeat)
         except Exception as exc:
             LOG.error("Malformed heartbeat payload: %s — %s", heartbeat, exc)
             return
 
         self._registry.update(hb)
-        LOG.debug("Heartbeat received: agent_id=%r hostname=%r", hb.agent_id, hb.hostname)
+        LOG.debug("Heartbeat received: target_id=%r hostname=%r", hb.target_id, hb.hostname)
 
-        # Notify conductor to persist agent status (fire-and-forget)
+        # Notify conductor to persist target status (fire-and-forget)
         try:
             self._get_conductor_client().cast(
                 ctxt,
-                "update_agent_status",
-                agent_id=hb.agent_id,
+                "update_target_status",
+                target_id=hb.target_id,
                 hostname=hb.hostname,
                 status=hb.status,
                 last_heartbeat=hb.timestamp.isoformat(),
                 enabled_drivers=hb.enabled_drivers,
                 labels=hb.labels,
+                target_type=hb.target_type,
+                gateway_id=hb.gateway_id,
             )
         except Exception as exc:
             # Non-fatal: in-memory state is updated; DB update will retry on next heartbeat
             LOG.warning(
-                "Could not notify conductor of heartbeat for agent %r: %s",
-                hb.agent_id, exc,
+                "Could not notify conductor of heartbeat for target %r: %s",
+                hb.target_id, exc,
+            )
+
+    # ------------------------------------------------------------------
+    # gateway_heartbeat — cast from gateway-mode targets (no return value)
+    # ------------------------------------------------------------------
+
+    def gateway_heartbeat(self, ctxt: dict, heartbeat: dict) -> None:
+        """
+        Receive a heartbeat from a sentinel-target running in gateway mode.
+
+        Notifies the conductor to persist the gateway status to DB.
+        This method is called via ``cast`` so it returns nothing.
+        """
+        try:
+            hb = GatewayHeartbeat(**heartbeat)
+        except Exception as exc:
+            LOG.error("Malformed gateway heartbeat payload: %s — %s", heartbeat, exc)
+            return
+
+        LOG.debug("Gateway heartbeat received: gateway_id=%r hostname=%r", hb.gateway_id, hb.hostname)
+
+        # Notify conductor to persist gateway status (fire-and-forget)
+        try:
+            self._get_conductor_client().cast(
+                ctxt,
+                "update_gateway_status",
+                gateway_id=hb.gateway_id,
+                hostname=hb.hostname,
+                status=hb.status,
+                last_heartbeat=hb.timestamp.isoformat(),
+                managed_target_ids=hb.managed_target_ids,
+                labels=hb.labels,
+            )
+        except Exception as exc:
+            LOG.warning(
+                "Could not notify conductor of gateway heartbeat for %r: %s",
+                hb.gateway_id, exc,
             )
 
     # ------------------------------------------------------------------
     # dispatch — call from conductor (synchronous, returns routing result)
     # ------------------------------------------------------------------
 
-    def dispatch(self, ctxt: dict, payload: dict, agent_id: str) -> dict:
+    def dispatch(self, ctxt: dict, payload: dict, target_id: str) -> dict:
         """
-        Route a signed execution payload to the target agent.
+        Route a signed execution payload to the target.
 
         Called by ``sentinel-conductor`` after RBAC check and RSA signing.
 
         Args:
             payload:   Fully signed ``ExecutionPayload`` dict.
-            agent_id:  Target agent identifier.
+            target_id: Target identifier.
 
         Returns:
             ``{"status": "queued"}`` on success.
-            ``{"status": "agent_unreachable", "reason": str}`` if the agent
+            ``{"status": "target_unreachable", "reason": str}`` if the target
             is not alive according to the heartbeat registry.
         """
-        # Liveness check (use agent's configured heartbeat interval as threshold base)
-        # We use a conservative 30s default; in production this comes from [agent] config
+        # Liveness check (use target's configured heartbeat interval as threshold base)
+        # We use a conservative 30s default; in production this comes from [target] config
         heartbeat_interval = 30
 
-        if not self._registry.is_alive(agent_id, heartbeat_interval):
-            record = self._registry.get(agent_id)
+        if not self._registry.is_alive(target_id, heartbeat_interval):
+            record = self._registry.get(target_id)
             if record is None:
-                reason = f"Agent {agent_id!r} has never sent a heartbeat."
+                reason = f"Target {target_id!r} has never sent a heartbeat."
             else:
                 age = (datetime.now(timezone.utc) - record.last_seen).total_seconds()
                 reason = (
-                    f"Agent {agent_id!r} last seen {age:.0f}s ago "
+                    f"Target {target_id!r} last seen {age:.0f}s ago "
                     f"(threshold: {heartbeat_interval * LIVENESS_MULTIPLIER}s)."
                 )
-            LOG.warning("dispatch: agent_unreachable agent_id=%r — %s", agent_id, reason)
-            return {"status": "agent_unreachable", "reason": reason}
+            LOG.warning("dispatch: target_unreachable target_id=%r — %s", target_id, reason)
+            return {"status": "target_unreachable", "reason": reason}
 
-        # Cast to the agent's dedicated queue: sentinel.agent.<agent_id>
+        # Cast to the target's dedicated queue: sentinel.target.<target_id>
         try:
-            agent_client = get_rpc_client(
+            target_client = get_rpc_client(
                 self._transport,
-                topic=self._conf.messaging.agent_queue_prefix,
-                server=agent_id,
+                topic=self._conf.messaging.target_queue_prefix,
+                server=target_id,
             )
-            agent_client.cast(ctxt, "execute_payload", payload=payload)
+            target_client.cast(ctxt, "execute_payload", payload=payload)
         except Exception as exc:
             LOG.error(
-                "Failed to cast payload to agent %r: %s", agent_id, exc
+                "Failed to cast payload to target %r: %s", target_id, exc
             )
             return {"status": "dispatch_error", "reason": str(exc)}
 
         LOG.info(
-            "Payload dispatched: message_id=%s → agent=%r",
+            "Payload dispatched: message_id=%s → target=%r",
             payload.get("message_id", "unknown"),
-            agent_id,
+            target_id,
         )
         return {"status": "queued"}
 
     # ------------------------------------------------------------------
-    # list_agents — informational, called by CLI and admin API
+    # list_targets — informational, called by CLI and admin API
     # ------------------------------------------------------------------
 
-    def list_agents(self, ctxt: dict) -> list[dict]:
-        """Return the current snapshot of all known agents and their liveness."""
+    def list_targets(self, ctxt: dict) -> list[dict]:
+        """Return the current snapshot of all known targets and their liveness."""
         heartbeat_interval = 30
         records = self._registry.get_all()
         return [
             {
-                "agent_id": r.agent_id,
+                "target_id": r.target_id,
                 "hostname": r.hostname,
                 "status": r.status,
                 "last_seen": r.last_seen.isoformat(),
-                "alive": self._registry.is_alive(r.agent_id, heartbeat_interval),
+                "alive": self._registry.is_alive(r.target_id, heartbeat_interval),
                 "enabled_drivers": r.enabled_drivers,
                 "labels": r.labels,
             }
@@ -361,11 +400,11 @@ def main() -> None:
     LOG.info("Starting %s", SERVICE_NAME)
 
     transport = get_transport(CONF)
-    registry = _AgentRegistry()
+    registry = _TargetRegistry()
     endpoint = SchedulerRPCEndpoint(conf=CONF, registry=registry, transport=transport)
 
-    # Start stale-agent reaper
-    reaper = _StaleAgentReaper(
+    # Start stale-target reaper
+    reaper = _StaleTargetReaper(
         conf=CONF,
         registry=registry,
         get_conductor_client_fn=endpoint._get_conductor_client,

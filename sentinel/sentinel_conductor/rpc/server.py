@@ -14,7 +14,7 @@ Execution flow
        ├─ [RBAC engine] ──────────────────── DENY → AuditLog(DENIED) + return error
        │
        ├─ require_2fa = False
-       │       └─ sign_and_dispatch() → call scheduler.dispatch() → cast to agent
+       │       └─ sign_and_dispatch() → call scheduler.dispatch() → cast to target
        │               └─ AuditLog(SUCCESS) + return {"status": "dispatched"}
        │
        └─ require_2fa = True
@@ -43,7 +43,7 @@ from typing import Any, Callable
 import oslo_messaging
 
 from common.crypto import sign_payload
-from common.exceptions import AgentUnreachable, PolicyDenied, SentinelException
+from common.exceptions import TargetUnreachable, PolicyDenied, SentinelException
 from common.messaging.rpc import get_rpc_client
 from common.messaging.transport import get_transport
 from common.models import AuditLog, AuditOutcome, ChallengeStatus, TwoFAChallenge
@@ -128,15 +128,15 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
 
         # ----------------------------------------------------------
         # Transaction 1: INSERT audit log + RBAC check, then commit.
-        # The commit happens BEFORE dispatching to the agent so that
+        # The commit happens BEFORE dispatching to the target so that
         # report_execution_result (which may arrive within milliseconds
-        # on fast agents) can always find the audit log row.
+        # on fast targets) can always find the audit log row.
         # ----------------------------------------------------------
         with self._session_factory() as session:
             audit = AuditLog(
                 initiator_id=exec_request.initiator_id,
                 action=f"execute:{exec_request.command}",
-                target_agent_id=exec_request.target_agent_id,
+                target_id=exec_request.target_id,
                 driver=exec_request.driver,
                 binary=exec_request.command,
                 args=" ".join(exec_request.args),
@@ -173,28 +173,28 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
 
         # ----------------------------------------------------------
         # Path B: No 2FA — dispatch outside any open transaction so
-        # that the agent's report_execution_result can update the row.
+        # that the target's report_execution_result can update the row.
         # ----------------------------------------------------------
         try:
             message_id = self._sign_and_dispatch(exec_request, auth_result)
-        except AgentUnreachable as exc:
+        except TargetUnreachable as exc:
             with self._session_factory() as session:
                 failed_audit = session.get(AuditLog, audit_id)
                 if failed_audit:
                     failed_audit.outcome = AuditOutcome.FAILURE
                     failed_audit.reason = str(exc)
             LOG.warning(
-                "Agent unreachable request_id=%s: %s",
+                "Target unreachable request_id=%s: %s",
                 exec_request.request_id, exc,
             )
             return {
-                "status": "agent_unreachable",
+                "status": "target_unreachable",
                 "reason": str(exc),
                 "request_id": exec_request.request_id,
             }
 
         # Transaction 2: persist message_id. Only set outcome=SUCCESS if
-        # report_execution_result hasn't already resolved it (fast agents).
+        # report_execution_result hasn't already resolved it (fast targets).
         with self._session_factory() as session:
             dispatched_audit = session.get(AuditLog, audit_id)
             if dispatched_audit:
@@ -203,8 +203,8 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
                     dispatched_audit.outcome = AuditOutcome.SUCCESS
 
         LOG.info(
-            "Dispatched request_id=%s message_id=%s agent=%s",
-            exec_request.request_id, message_id, exec_request.target_agent_id,
+            "Dispatched request_id=%s message_id=%s target=%s",
+            exec_request.request_id, message_id, exec_request.target_id,
         )
         return {
             "status": "dispatched",
@@ -227,7 +227,7 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
                 "request_id": audit.request_id,
                 "outcome": audit.outcome.value,
                 "action": audit.action,
-                "target_agent_id": audit.target_agent_id,
+                "target_id": audit.target_id,
                 "message_id": audit.message_id,
                 "reason": audit.reason,
                 "event_time": audit.event_time.isoformat(),
@@ -248,9 +248,9 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
         duration_ms: int,
     ) -> None:
         """
-        Receive command execution output from a sentinel-agent.
+        Receive command execution output from a sentinel-target.
 
-        Called via oslo.messaging cast (fire-and-forget) by the agent
+        Called via oslo.messaging cast (fire-and-forget) by the target
         after a command completes.  Updates the audit log with the output
         and finalises the outcome based on exit_code.
         """
@@ -278,55 +278,6 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
                 request_id, exit_code, duration_ms,
             )
 
-    def update_agent_status(
-        self,
-        ctxt: dict,
-        agent_id: str,
-        hostname: str,
-        status: str,
-        last_heartbeat: str,
-        enabled_drivers: list[str],
-        labels: dict,
-    ) -> None:
-        """
-        Persist agent heartbeat state to the database.
-
-        Called by ``sentinel-scheduler`` after receiving a heartbeat from
-        an agent.  This is the only path through which agent status is
-        written to the DB (conductor is the sole DB writer).
-
-        Unknown agents are **auto-registered** on first heartbeat so
-        operators don't need to manually add agents before they can
-        receive policies.
-        """
-        from sqlalchemy import select
-        from common.models import Agent, AgentStatus
-
-        with self._session_factory() as session:
-            agent: Agent | None = session.scalar(
-                select(Agent).where(Agent.agent_id == agent_id)
-            )
-
-            hb_dt = datetime.fromisoformat(last_heartbeat)
-            agent_status = AgentStatus.ACTIVE if status == "active" else AgentStatus.INACTIVE
-
-            if agent is None:
-                # Auto-register new agent on first heartbeat
-                agent = Agent(
-                    agent_id=agent_id,
-                    hostname=hostname,
-                    status=agent_status,
-                    last_heartbeat=hb_dt,
-                    labels_json=json.dumps(labels),
-                )
-                session.add(agent)
-                LOG.info("Auto-registered new agent: agent_id=%r hostname=%r", agent_id, hostname)
-            else:
-                agent.status = agent_status
-                agent.last_heartbeat = hb_dt
-                agent.hostname = hostname
-                agent.labels_json = json.dumps(labels)
-
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -341,7 +292,7 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
         """Create a 2FA challenge and start a background polling thread."""
         context = ChallengeContext(
             initiator_id=exec_request.initiator_id,
-            target_agent_id=exec_request.target_agent_id,
+            target_agent_id=exec_request.target_id,
             command=exec_request.command,
             args=exec_request.args,
             request_id=exec_request.request_id,
@@ -411,13 +362,13 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
         """
         Build, sign the payload and route it through sentinel-scheduler.
 
-        The scheduler performs an agent liveness check before casting
-        the payload to ``sentinel.agent.<agent_id>``.
+        The scheduler performs a target liveness check before casting
+        the payload to ``sentinel.target.<target_id>``.
 
         Returns the message_id of the dispatched payload.
 
         Raises:
-            AgentUnreachable: if the scheduler reports the agent is not alive.
+            TargetUnreachable: if the scheduler reports the target is not alive.
         """
         message_id = str(uuid.uuid4())
         timestamp = int(datetime.now(timezone.utc).timestamp())
@@ -462,12 +413,12 @@ class ConductorRPCEndpoint(ConductorCRUDMixin):
             {},
             "dispatch",
             payload=payload_dict,
-            agent_id=exec_request.target_agent_id,
+            target_id=exec_request.target_id,
         )
 
         if result.get("status") != "queued":
-            raise AgentUnreachable(
-                result.get("reason", f"Scheduler rejected dispatch for agent {exec_request.target_agent_id!r}")
+            raise TargetUnreachable(
+                result.get("reason", f"Scheduler rejected dispatch for target {exec_request.target_id!r}")
             )
 
         return message_id
@@ -571,14 +522,14 @@ class _TwoFAPoller:
     def _dispatch_and_update_audit(self, session) -> None:
         try:
             message_id = self._dispatch(self._exec_request, self._auth_result)
-        except AgentUnreachable as exc:
+        except TargetUnreachable as exc:
             self._update_audit(
                 session,
                 AuditOutcome.FAILURE,
-                f"Agent unreachable after 2FA approval: {exc}",
+                f"Target unreachable after 2FA approval: {exc}",
             )
             LOG.warning(
-                "Agent unreachable after 2FA approval: challenge=%s — %s",
+                "Target unreachable after 2FA approval: challenge=%s — %s",
                 self._challenge_id, exc,
             )
             return

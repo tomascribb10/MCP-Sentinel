@@ -20,7 +20,7 @@ class ExecutionRequest(BaseModel):
     """
 
     initiator_id: str = Field(..., description="Identity of the requesting MCP agent.")
-    target_agent_id: str = Field(..., description="agent_id of the target sentinel-agent.")
+    target_id: str = Field(..., description="target_id of the destination sentinel-target.")
     driver: str = Field(..., description="Execution driver name.")
     command: str = Field(..., description="Absolute path to binary.")
     args: list[str] = Field(default_factory=list)
@@ -29,16 +29,34 @@ class ExecutionRequest(BaseModel):
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
 
-class AgentHeartbeat(BaseModel):
+class TargetHeartbeat(BaseModel):
     """
-    Heartbeat message sent by sentinel-agent to sentinel-scheduler.
+    Heartbeat message sent by sentinel-target to sentinel-scheduler.
 
     Published periodically (every N seconds) to the scheduler's RPC topic.
     """
 
-    agent_id: str
+    target_id: str
     hostname: str
+    target_type: str = "direct"
+    gateway_id: str | None = None
     status: str = "active"
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     enabled_drivers: list[str] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class GatewayHeartbeat(BaseModel):
+    """
+    Heartbeat message sent by a sentinel-target running in gateway mode.
+
+    The gateway sends this once per heartbeat interval. It also sends
+    individual TargetHeartbeat messages for each managed target.
+    """
+
+    gateway_id: str
+    hostname: str
+    status: str = "active"
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    managed_target_ids: list[str] = Field(default_factory=list)
     labels: dict[str, str] = Field(default_factory=dict)

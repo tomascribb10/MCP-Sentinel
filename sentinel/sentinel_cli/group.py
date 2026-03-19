@@ -73,7 +73,7 @@ class DeleteGroup(SentinelCommand):
 
 
 class ListGroupMembers(SentinelLister):
-    "List agents that belong to a host group."
+    "List targets that belong to a host group."
 
     def get_parser(self, prog_name):
         p = super().get_parser(prog_name)
@@ -82,40 +82,40 @@ class ListGroupMembers(SentinelLister):
 
     def take_action(self, parsed_args):
         client = _get_client(parsed_args)
-        agents = client.get(f"/groups/{parsed_args.group_id}/members")
-        columns = ("agent_id", "hostname", "status")
-        rows = [(a["agent_id"], a["hostname"], a["status"]) for a in agents]
+        targets = client.get(f"/groups/{parsed_args.group_id}/members")
+        columns = ("target_id", "hostname", "status")
+        rows = [(t["target_id"], t["hostname"], t["status"]) for t in targets]
         return columns, rows
 
 
 class AddGroupMember(SentinelCommand):
-    "Add an agent to a host group."
+    "Add a target to a host group."
 
     def get_parser(self, prog_name):
         p = super().get_parser(prog_name)
         p.add_argument("group_id", help="UUID of the group.")
-        p.add_argument("agent_id", help="agent_id or UUID of the agent to add.")
+        p.add_argument("target_id", help="target_id or UUID of the target to add.")
         return p
 
     def take_action(self, parsed_args):
         client = _get_client(parsed_args)
         client.post(
             f"/groups/{parsed_args.group_id}/members",
-            {"agent_id": parsed_args.agent_id},
+            {"target_id": parsed_args.target_id},
         )
-        print(f"Agent '{parsed_args.agent_id}' added to group '{parsed_args.group_id}'.")
+        print(f"Target '{parsed_args.target_id}' added to group '{parsed_args.group_id}'.")
 
 
 class RemoveGroupMember(SentinelCommand):
-    "Remove an agent from a host group."
+    "Remove a target from a host group."
 
     def get_parser(self, prog_name):
         p = super().get_parser(prog_name)
         p.add_argument("group_id", help="UUID of the group.")
-        p.add_argument("agent_id", help="agent_id or UUID of the agent to remove.")
+        p.add_argument("target_id", help="target_id or UUID of the target to remove.")
         return p
 
     def take_action(self, parsed_args):
         client = _get_client(parsed_args)
-        client.delete(f"/groups/{parsed_args.group_id}/members/{parsed_args.agent_id}")
-        print(f"Agent '{parsed_args.agent_id}' removed from group '{parsed_args.group_id}'.")
+        client.delete(f"/groups/{parsed_args.group_id}/members/{parsed_args.target_id}")
+        print(f"Target '{parsed_args.target_id}' removed from group '{parsed_args.group_id}'.")

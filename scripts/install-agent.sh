@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MCP-Sentinel — Agent Installer
+# MCP-Sentinel — Target Installer
 # =============================================================================
 #
-# Installs or upgrades sentinel-agent as a systemd service on a Linux host.
+# Installs or upgrades sentinel-target as a systemd service on a Linux host.
 # Uses an isolated Python venv so it never touches system packages.
 #
 # REQUIREMENTS
@@ -18,23 +18,23 @@
 #
 # OPTIONS
 #   --source-dir DIR    Path to the repo root (default: directory of this script)
-#   --install-dir DIR   Venv + binary install location (default: /opt/sentinel-agent)
+#   --install-dir DIR   Venv + binary install location (default: /opt/sentinel-target)
 #   --config-dir DIR    Config + key storage (default: /etc/sentinel)
 #   --log-dir DIR       Log directory (default: /var/log/sentinel)
-#   --user USER         Service OS user (default: sentinel-agent; created if absent)
+#   --user USER         Service OS user (default: sentinel-target; created if absent)
 #   --uninstall         Stop service, remove venv and systemd unit (keeps config)
 #   --help              Show this message
 #
 # POST-INSTALL STEPS (fresh install)
-#   1. Edit /etc/sentinel/sentinel-agent.conf
+#   1. Edit /etc/sentinel/sentinel-target.conf
 #      - Set the RabbitMQ URL (transport_url)
-#      - Optionally override agent_id (defaults to hostname)
+#      - Optionally override target_id (defaults to hostname)
 #   2. Copy the conductor public key:
 #        scp <control-plane>:/etc/sentinel/conductor_public.pem \
 #            /etc/sentinel/conductor_public.pem
 #   3. Start the service:
-#        systemctl start sentinel-agent
-#        journalctl -fu sentinel-agent
+#        systemctl start sentinel-target
+#        journalctl -fu sentinel-target
 #
 # UPGRADE
 #   Re-run the script — it detects an existing install, upgrades the venv,
@@ -48,11 +48,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$(dirname "$SCRIPT_DIR")"   # repo root (one level up from scripts/)
-INSTALL_DIR="/opt/sentinel-agent"
+INSTALL_DIR="/opt/sentinel-target"
 CONFIG_DIR="/etc/sentinel"
 LOG_DIR="/var/log/sentinel"
-SERVICE_USER="sentinel-agent"
-SERVICE_NAME="sentinel-agent"
+SERVICE_USER="sentinel-target"
+SERVICE_NAME="sentinel-target"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 SUDOERS_FILE="/etc/sudoers.d/${SERVICE_NAME}"
 DO_UNINSTALL=false
@@ -92,9 +92,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 VENV_DIR="${INSTALL_DIR}/venv"
-SENTINEL_BIN="${VENV_DIR}/bin/sentinel-agent"
+SENTINEL_BIN="${VENV_DIR}/bin/sentinel-target"
 SOURCE_PKG="${SOURCE_DIR}/sentinel"          # directory with setup.cfg
-REQ_AGENT="${SOURCE_PKG}/requirements.agent.txt"
+REQ_TARGET="${SOURCE_PKG}/requirements.target.txt"
 
 # ---------------------------------------------------------------------------
 # Root check
@@ -107,7 +107,7 @@ fi
 # Uninstall path
 # ---------------------------------------------------------------------------
 if $DO_UNINSTALL; then
-    info "Uninstalling sentinel-agent..."
+    info "Uninstalling sentinel-target..."
 
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
         info "Stopping service..."
@@ -143,8 +143,8 @@ command -v systemctl &>/dev/null || die "systemd not found — this installer re
 # Source package
 [[ -f "${SOURCE_PKG}/setup.cfg" ]] \
     || die "Cannot find setup.cfg in ${SOURCE_PKG}. Run from repo root or use --source-dir."
-[[ -f "$REQ_AGENT" ]] \
-    || die "Cannot find requirements.agent.txt in ${SOURCE_PKG}."
+[[ -f "$REQ_TARGET" ]] \
+    || die "Cannot find requirements.target.txt in ${SOURCE_PKG}."
 
 # Python 3.10+
 PYTHON=""
@@ -193,10 +193,10 @@ if ! id "$SERVICE_USER" &>/dev/null; then
         --system \
         --no-create-home \
         --shell /sbin/nologin \
-        --comment "MCP-Sentinel Agent" \
+        --comment "MCP-Sentinel Target" \
         "$SERVICE_USER"
 
-    # Add to 'adm' group so the agent can read /var/log/syslog etc.
+    # Add to 'adm' group so the target can read /var/log/syslog etc.
     if getent group adm &>/dev/null; then
         usermod -aG adm "$SERVICE_USER"
         info "Added $SERVICE_USER to group 'adm' (log file read access)"
@@ -215,7 +215,7 @@ fi
 # ---------------------------------------------------------------------------
 info "Installing sudoers rule: $SUDOERS_FILE"
 cat > "$SUDOERS_FILE" <<EOF
-# MCP-Sentinel agent — controlled privilege escalation for whitelisted binaries.
+# MCP-Sentinel target — controlled privilege escalation for whitelisted binaries.
 # Argument restrictions are enforced by Conductor RBAC engine + driver args_regex.
 # This file is managed by scripts/install-agent.sh — do not edit manually.
 Defaults!SENTINEL_CMDS !requiretty, !pam_session
@@ -236,7 +236,7 @@ fi
 info "Creating directories..."
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$LOG_DIR"
 
-# Agent owns only its log dir; config dir is root-owned (keys/configs sensitive)
+# Target owns only its log dir; config dir is root-owned (keys/configs sensitive)
 chown root:${SERVICE_USER} "$CONFIG_DIR"
 chmod 750 "$CONFIG_DIR"
 chown "${SERVICE_USER}:${SERVICE_USER}" "$LOG_DIR"
@@ -273,24 +273,24 @@ info "Upgrading pip inside venv..."
 # ---------------------------------------------------------------------------
 # Install dependencies
 # ---------------------------------------------------------------------------
-info "Installing agent dependencies from ${REQ_AGENT} ..."
-"$PIP" install --quiet -r "$REQ_AGENT"
+info "Installing target dependencies from ${REQ_TARGET} ..."
+"$PIP" install --quiet -r "$REQ_TARGET"
 ok "Dependencies installed"
 
 info "Installing mcp-sentinel package (without pulling redundant deps)..."
 # --no-deps: deps already installed above; we just need the entry points
-# registered so 'sentinel-agent' console_script is available in the venv.
+# registered so 'sentinel-target' console_script is available in the venv.
 "$PIP" install --quiet --no-deps "$SOURCE_PKG"
-ok "Package installed — $(${VENV_DIR}/bin/sentinel-agent --version 2>/dev/null || echo 'OK')"
+ok "Package installed — $(${VENV_DIR}/bin/sentinel-target --version 2>/dev/null || echo 'OK')"
 
 # Ensure the binary is owned by root and not writable by the service user
 chown -R root:root "$INSTALL_DIR"
-chmod 755 "${VENV_DIR}/bin/sentinel-agent"
+chmod 755 "${VENV_DIR}/bin/sentinel-target"
 
 # ---------------------------------------------------------------------------
 # Config template (fresh install only — never overwrite existing config)
 # ---------------------------------------------------------------------------
-CONF_FILE="${CONFIG_DIR}/sentinel-agent.conf"
+CONF_FILE="${CONFIG_DIR}/sentinel-target.conf"
 CONF_EXAMPLE="${SOURCE_DIR}/config/sentinel.agent-host.conf.example"
 
 if [[ ! -f "$CONF_FILE" ]]; then
@@ -328,7 +328,7 @@ info "Writing systemd unit file: $UNIT_FILE"
 
 cat > "$UNIT_FILE" << EOF
 [Unit]
-Description=MCP-Sentinel Agent
+Description=MCP-Sentinel Target
 Documentation=https://github.com/anthropics/mcp-sentinel
 After=network-online.target
 Wants=network-online.target
@@ -338,7 +338,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 
-ExecStart=${VENV_DIR}/bin/sentinel-agent
+ExecStart=${VENV_DIR}/bin/sentinel-target
 Environment=SENTINEL_CONF=${CONF_FILE}
 
 # Restart on any non-zero exit; back off up to 5 minutes between retries.
@@ -350,12 +350,12 @@ RestartMaxDelaySec=300
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=sentinel-agent
+SyslogIdentifier=sentinel-target
 
 # --- Security hardening ---
-# The agent must be able to spawn privileged commands (ps, systemctl, ss -p …).
+# The target must be able to spawn privileged commands (ps, systemctl, ss -p …).
 # We therefore do NOT use ProtectSystem=strict or PrivateMounts, but we
-# still apply a set of lightweight restrictions on the agent process itself.
+# still apply a set of lightweight restrictions on the target process itself.
 NoNewPrivileges=false          # child processes (spawned commands) may need setuid
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -366,7 +366,7 @@ MemoryDenyWriteExecute=false   # some Python JIT paths require W+X pages
 RestrictSUIDSGID=false         # spawned binaries may use setuid (e.g. ping, sudo)
 
 # Capability whitelist:
-#   CAP_NET_RAW    — lets the agent run ping(1) without root.
+#   CAP_NET_RAW    — lets the target run ping(1) without root.
 #   CAP_SETUID     — required for sudo to switch to UID 0.
 #   CAP_SETGID     — required for sudo to switch to GID 0.
 #   CAP_KILL       — lets sudo'd kill(1) send signals to other-user processes.
@@ -398,7 +398,7 @@ if $IS_UPGRADE && $WAS_RUNNING; then
     if systemctl is-active --quiet "$SERVICE_NAME"; then
         ok "Service restarted successfully"
     else
-        error "Service failed to restart — check logs: journalctl -fu sentinel-agent"
+        error "Service failed to restart — check logs: journalctl -fu sentinel-target"
         exit 1
     fi
 fi
@@ -409,9 +409,9 @@ fi
 echo ""
 echo -e "${GRN}========================================================${NC}"
 if $IS_UPGRADE; then
-    echo -e "${GRN}  sentinel-agent upgraded successfully!${NC}"
+    echo -e "${GRN}  sentinel-target upgraded successfully!${NC}"
 else
-    echo -e "${GRN}  sentinel-agent installed successfully!${NC}"
+    echo -e "${GRN}  sentinel-target installed successfully!${NC}"
 fi
 echo -e "${GRN}========================================================${NC}"
 echo ""
@@ -421,8 +421,8 @@ if ! $IS_UPGRADE; then
     echo ""
     echo "  1. Edit the config file:"
     echo "       $CONF_FILE"
-    echo "     → Set transport_url to your RabbitMQ address"
-    echo "     → Optionally set agent_id (default: hostname = $(hostname))"
+    echo "     -> Set transport_url to your RabbitMQ address"
+    echo "     -> Optionally set target_id (default: hostname = $(hostname))"
     echo ""
     echo "  2. Place the conductor public key:"
     echo "       $KEY_FILE"

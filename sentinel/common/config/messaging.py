@@ -20,11 +20,11 @@ messaging_opts = [
         help="RPC topic for sentinel-scheduler.",
     ),
     cfg.StrOpt(
-        "agent_queue_prefix",
-        default="sentinel.agent",
+        "target_queue_prefix",
+        default="sentinel.target",
         help=(
-            "Prefix for per-agent queues. "
-            "Final queue name: <prefix>.<agent_id>"
+            "Prefix for per-target queues. "
+            "Final queue name: <prefix>.<target_id>"
         ),
     ),
     cfg.IntOpt(

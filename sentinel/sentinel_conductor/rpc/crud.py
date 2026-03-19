@@ -23,7 +23,8 @@ from typing import Any
 from sqlalchemy import select
 
 from common.models import (
-    Agent, AgentGroupMembership, AgentStatus,
+    Target, TargetGroupMembership, TargetStatus, TargetType,
+    Gateway, GatewayStatus,
     AuditLog,
     Command, CommandSet,
     HostGroup,
@@ -39,16 +40,31 @@ LOG = logging.getLogger(__name__)
 # Serialisation helpers
 # ---------------------------------------------------------------------------
 
-def _agent_to_dict(a: Agent) -> dict:
+def _target_to_dict(t: Target) -> dict:
     return {
-        "id": a.id,
-        "agent_id": a.agent_id,
-        "hostname": a.hostname,
-        "description": a.description,
-        "status": a.status.value,
-        "last_heartbeat": a.last_heartbeat.isoformat() if a.last_heartbeat else None,
-        "labels": json.loads(a.labels_json or "{}"),
-        "created_at": a.created_at.isoformat(),
+        "id": t.id,
+        "target_id": t.target_id,
+        "hostname": t.hostname,
+        "description": t.description,
+        "target_type": t.target_type.value,
+        "gateway_id": t.gateway_id,
+        "status": t.status.value,
+        "last_heartbeat": t.last_heartbeat.isoformat() if t.last_heartbeat else None,
+        "labels": json.loads(t.labels_json or "{}"),
+        "created_at": t.created_at.isoformat(),
+    }
+
+
+def _gateway_to_dict(g: Gateway) -> dict:
+    return {
+        "id": g.id,
+        "gateway_id": g.gateway_id,
+        "hostname": g.hostname,
+        "description": g.description,
+        "status": g.status.value,
+        "last_heartbeat": g.last_heartbeat.isoformat() if g.last_heartbeat else None,
+        "labels": json.loads(g.labels_json or "{}"),
+        "created_at": g.created_at.isoformat(),
     }
 
 
@@ -109,7 +125,7 @@ def _audit_log_to_dict(a: AuditLog) -> dict:
         "initiator_id": a.initiator_id,
         "initiator_type": a.initiator_type,
         "action": a.action,
-        "target_agent_id": a.target_agent_id,
+        "target_id": a.target_id,
         "target_host": a.target_host,
         "driver": a.driver,
         "binary": a.binary,
@@ -154,55 +170,146 @@ class ConductorCRUDMixin:
     """
 
     # ==================================================================
-    # AGENTS
+    # TARGETS
     # ==================================================================
 
-    def list_agents(self, ctxt: dict, status_filter: str | None = None) -> list[dict]:
+    def list_targets(self, ctxt: dict, status_filter: str | None = None) -> list[dict]:
         with self._session_factory() as session:
-            q = select(Agent)
+            q = select(Target)
             if status_filter:
                 try:
-                    q = q.where(Agent.status == AgentStatus(status_filter))
+                    q = q.where(Target.status == TargetStatus(status_filter))
                 except ValueError:
                     pass
-            agents = session.scalars(q.order_by(Agent.created_at.desc())).all()
-            return [_agent_to_dict(a) for a in agents]
+            targets = session.scalars(q.order_by(Target.created_at.desc())).all()
+            return [_target_to_dict(t) for t in targets]
 
-    def get_agent(self, ctxt: dict, agent_id: str) -> dict | None:
+    def get_target(self, ctxt: dict, target_id: str) -> dict | None:
         with self._session_factory() as session:
-            agent = session.scalar(
-                select(Agent).where(
-                    (Agent.agent_id == agent_id) | (Agent.id == agent_id)
+            target = session.scalar(
+                select(Target).where(
+                    (Target.target_id == target_id) | (Target.id == target_id)
                 )
             )
-            return _agent_to_dict(agent) if agent else None
+            return _target_to_dict(target) if target else None
 
-    def update_agent(self, ctxt: dict, agent_id: str, data: dict) -> dict | None:
+    def update_target(self, ctxt: dict, target_id: str, data: dict) -> dict | None:
         with self._session_factory() as session:
-            agent = session.scalar(
-                select(Agent).where(
-                    (Agent.agent_id == agent_id) | (Agent.id == agent_id)
+            target = session.scalar(
+                select(Target).where(
+                    (Target.target_id == target_id) | (Target.id == target_id)
                 )
             )
-            if agent is None:
+            if target is None:
                 return None
             if "description" in data:
-                agent.description = data["description"]
+                target.description = data["description"]
             if "labels" in data:
-                agent.labels_json = json.dumps(data["labels"])
-            return _agent_to_dict(agent)
+                target.labels_json = json.dumps(data["labels"])
+            return _target_to_dict(target)
 
-    def delete_agent(self, ctxt: dict, agent_id: str) -> bool:
+    def delete_target(self, ctxt: dict, target_id: str) -> bool:
         with self._session_factory() as session:
-            agent = session.scalar(
-                select(Agent).where(
-                    (Agent.agent_id == agent_id) | (Agent.id == agent_id)
+            target = session.scalar(
+                select(Target).where(
+                    (Target.target_id == target_id) | (Target.id == target_id)
                 )
             )
-            if agent is None:
+            if target is None:
                 return False
-            session.delete(agent)
+            session.delete(target)
             return True
+
+    def update_target_status(
+        self,
+        ctxt: dict,
+        target_id: str,
+        hostname: str,
+        status: str,
+        last_heartbeat: str,
+        enabled_drivers: list,
+        labels: dict,
+        target_type: str = "direct",
+        gateway_id: str | None = None,
+    ) -> None:
+        """Upsert target status after a heartbeat. Called by sentinel-scheduler."""
+        with self._session_factory() as session:
+            target = session.scalar(
+                select(Target).where(Target.target_id == target_id)
+            )
+            if target is None:
+                target = Target(
+                    target_id=target_id,
+                    hostname=hostname,
+                    target_type=TargetType(target_type) if target_type else TargetType.DIRECT,
+                    gateway_id=gateway_id,
+                    labels_json=json.dumps(labels or {}),
+                )
+                session.add(target)
+                LOG.info("Auto-registered new target: target_id=%r hostname=%r", target_id, hostname)
+            target.hostname = hostname
+            target.status = TargetStatus(status) if status in ("active", "inactive", "unknown") else TargetStatus.UNKNOWN
+            target.last_heartbeat = datetime.fromisoformat(last_heartbeat)
+            target.labels_json = json.dumps(labels or {})
+            if target_type:
+                try:
+                    target.target_type = TargetType(target_type)
+                except ValueError:
+                    pass
+            if gateway_id is not None:
+                target.gateway_id = gateway_id
+
+    # ==================================================================
+    # GATEWAYS
+    # ==================================================================
+
+    def list_gateways(self, ctxt: dict, status_filter: str | None = None) -> list[dict]:
+        with self._session_factory() as session:
+            q = select(Gateway)
+            if status_filter:
+                try:
+                    q = q.where(Gateway.status == GatewayStatus(status_filter))
+                except ValueError:
+                    pass
+            gateways = session.scalars(q.order_by(Gateway.created_at.desc())).all()
+            return [_gateway_to_dict(g) for g in gateways]
+
+    def get_gateway(self, ctxt: dict, gateway_id: str) -> dict | None:
+        with self._session_factory() as session:
+            gw = session.scalar(
+                select(Gateway).where(
+                    (Gateway.gateway_id == gateway_id) | (Gateway.id == gateway_id)
+                )
+            )
+            return _gateway_to_dict(gw) if gw else None
+
+    def update_gateway_status(
+        self,
+        ctxt: dict,
+        gateway_id: str,
+        hostname: str,
+        status: str,
+        last_heartbeat: str,
+        managed_target_ids: list,
+        labels: dict,
+    ) -> None:
+        """Upsert gateway status after a heartbeat. Called by sentinel-scheduler."""
+        with self._session_factory() as session:
+            gw = session.scalar(
+                select(Gateway).where(Gateway.gateway_id == gateway_id)
+            )
+            if gw is None:
+                gw = Gateway(
+                    gateway_id=gateway_id,
+                    hostname=hostname,
+                    labels_json=json.dumps(labels or {}),
+                )
+                session.add(gw)
+                LOG.info("Auto-registered new gateway: gateway_id=%r hostname=%r", gateway_id, hostname)
+            gw.hostname = hostname
+            gw.status = GatewayStatus(status) if status in ("active", "inactive", "unknown") else GatewayStatus.UNKNOWN
+            gw.last_heartbeat = datetime.fromisoformat(last_heartbeat)
+            gw.labels_json = json.dumps(labels or {})
 
     # ==================================================================
     # HOST GROUPS
@@ -252,41 +359,41 @@ class ConductorCRUDMixin:
             session.delete(group)
             return True
 
-    def add_agent_to_group(self, ctxt: dict, group_id: str, agent_id: str) -> bool:
+    def add_target_to_group(self, ctxt: dict, group_id: str, target_id: str) -> bool:
         with self._session_factory() as session:
             group = session.get(HostGroup, group_id)
-            agent = session.scalar(
-                select(Agent).where(
-                    (Agent.agent_id == agent_id) | (Agent.id == agent_id)
+            target = session.scalar(
+                select(Target).where(
+                    (Target.target_id == target_id) | (Target.id == target_id)
                 )
             )
-            if group is None or agent is None:
+            if group is None or target is None:
                 return False
             # Idempotent: check if already a member
             existing = session.scalar(
-                select(AgentGroupMembership).where(
-                    AgentGroupMembership.group_id == group_id,
-                    AgentGroupMembership.agent_id == agent.id,
+                select(TargetGroupMembership).where(
+                    TargetGroupMembership.group_id == group_id,
+                    TargetGroupMembership.target_id == target.id,
                 )
             )
             if existing:
                 return True
-            session.add(AgentGroupMembership(agent_id=agent.id, group_id=group_id))
+            session.add(TargetGroupMembership(target_id=target.id, group_id=group_id))
             return True
 
-    def remove_agent_from_group(self, ctxt: dict, group_id: str, agent_id: str) -> bool:
+    def remove_target_from_group(self, ctxt: dict, group_id: str, target_id: str) -> bool:
         with self._session_factory() as session:
-            agent = session.scalar(
-                select(Agent).where(
-                    (Agent.agent_id == agent_id) | (Agent.id == agent_id)
+            target = session.scalar(
+                select(Target).where(
+                    (Target.target_id == target_id) | (Target.id == target_id)
                 )
             )
-            if agent is None:
+            if target is None:
                 return False
             membership = session.scalar(
-                select(AgentGroupMembership).where(
-                    AgentGroupMembership.group_id == group_id,
-                    AgentGroupMembership.agent_id == agent.id,
+                select(TargetGroupMembership).where(
+                    TargetGroupMembership.group_id == group_id,
+                    TargetGroupMembership.target_id == target.id,
                 )
             )
             if membership is None:
@@ -297,15 +404,15 @@ class ConductorCRUDMixin:
     def list_group_members(self, ctxt: dict, group_id: str) -> list[dict]:
         with self._session_factory() as session:
             memberships = session.scalars(
-                select(AgentGroupMembership).where(
-                    AgentGroupMembership.group_id == group_id
+                select(TargetGroupMembership).where(
+                    TargetGroupMembership.group_id == group_id
                 )
             ).all()
             result = []
             for m in memberships:
-                agent = session.get(Agent, m.agent_id)
-                if agent:
-                    result.append(_agent_to_dict(agent))
+                target = session.get(Target, m.target_id)
+                if target:
+                    result.append(_target_to_dict(target))
             return result
 
     # ==================================================================
@@ -316,14 +423,14 @@ class ConductorCRUDMixin:
         self,
         ctxt: dict,
         initiator_id: str,
-        target_agent_id: str | None = None,
+        target_id: str | None = None,
     ) -> list[dict]:
         """
         Return every command the given initiator is authorised to execute.
 
         For each active RoleBinding matching principal_id, resolves the
-        CommandSet → Commands and HostGroup → member Agents.
-        Optionally filtered to a single agent (by agent_id or id).
+        CommandSet → Commands and HostGroup → member Targets.
+        Optionally filtered to a single target (by target_id or id).
         """
         with self._session_factory() as session:
             bindings = session.scalars(
@@ -340,25 +447,25 @@ class ConductorCRUDMixin:
                     continue
 
                 memberships = session.scalars(
-                    select(AgentGroupMembership).where(
-                        AgentGroupMembership.group_id == binding.target_group_id
+                    select(TargetGroupMembership).where(
+                        TargetGroupMembership.group_id == binding.target_group_id
                     )
                 ).all()
 
-                agents = []
+                targets = []
                 for m in memberships:
-                    agent = session.get(Agent, m.agent_id)
-                    if agent is None:
+                    t = session.get(Target, m.target_id)
+                    if t is None:
                         continue
-                    if target_agent_id and agent.agent_id != target_agent_id and agent.id != target_agent_id:
+                    if target_id and t.target_id != target_id and t.id != target_id:
                         continue
-                    agents.append({
-                        "agent_id": agent.agent_id,
-                        "hostname": agent.hostname,
-                        "status": agent.status.value,
+                    targets.append({
+                        "target_id": t.target_id,
+                        "hostname": t.hostname,
+                        "status": t.status.value,
                     })
 
-                if not agents:
+                if not targets:
                     continue
 
                 for cmd in cs.commands:
@@ -371,7 +478,7 @@ class ConductorCRUDMixin:
                         "allowed_paths": cmd.allowed_paths,
                         "driver": cs.driver,
                         "command_set": cs.name,
-                        "agents": agents,
+                        "targets": targets,
                     })
 
             return rows
@@ -514,7 +621,7 @@ class ConductorCRUDMixin:
         self,
         ctxt: dict,
         initiator_id: str | None = None,
-        target_agent_id: str | None = None,
+        target_id: str | None = None,
         outcome: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -524,8 +631,8 @@ class ConductorCRUDMixin:
             q = select(AuditLog)
             if initiator_id:
                 q = q.where(AuditLog.initiator_id == initiator_id)
-            if target_agent_id:
-                q = q.where(AuditLog.target_agent_id == target_agent_id)
+            if target_id:
+                q = q.where(AuditLog.target_id == target_id)
             if outcome:
                 try:
                     q = q.where(AuditLog.outcome == AuditOutcome(outcome))

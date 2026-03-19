@@ -19,7 +19,7 @@ echo = true
 transport_url = rabbit://sentinel:sentinel@rabbitmq:5672/sentinel
 rpc_topic_conductor = sentinel.conductor
 rpc_topic_scheduler = sentinel.scheduler
-agent_queue_prefix = sentinel.agent
+target_queue_prefix = sentinel.target
 rpc_timeout = 60
 
 [conductor]
@@ -28,12 +28,13 @@ public_key_path = /etc/sentinel/conductor_public.pem
 rsa_key_bits = 4096
 twofa_challenge_timeout_seconds = 300
 
-[agent]
-# agent_id is read from hostname if not set
+[target]
+# target_id is read from hostname if not set
 conductor_public_key_path = /etc/sentinel/conductor_public.pem
 heartbeat_interval_seconds = 30
 enabled_drivers = posix_bash
 execution_timeout_seconds = 300
+mode = direct
 
 [auth]
 # Use 'stub' for dev (auto-approves 2FA), 'telegram' for real testing

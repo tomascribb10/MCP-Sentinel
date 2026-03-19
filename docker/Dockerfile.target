@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Minimal system deps for the agent
+# Minimal system deps for the target
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libssl-dev \
@@ -19,6 +19,6 @@ COPY setup.cfg pyproject.toml ./
 COPY . .
 RUN pip install --no-cache-dir --no-deps .
 
-# Agent runs as unprivileged user — never root
-RUN useradd --no-create-home --shell /bin/false sentinel-agent
-USER sentinel-agent
+# Target runs as unprivileged user — never root
+RUN useradd --no-create-home --shell /bin/false sentinel-target
+USER sentinel-target

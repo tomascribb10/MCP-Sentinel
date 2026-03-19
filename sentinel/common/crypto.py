@@ -2,7 +2,7 @@
 common.crypto
 =============
 Shared RSA-SHA256 cryptographic primitives used by both
-sentinel-conductor (signing) and sentinel-agent (verification).
+sentinel-conductor (signing) and sentinel-target (verification).
 
 Having these in ``common`` means neither component needs to import
 from the other's package.

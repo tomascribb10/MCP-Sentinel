@@ -31,9 +31,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ---------------------------------------------------------------------------
 from common.models import Base  # noqa: E402  (import after sys.path manipulation)
 from common.models import (  # noqa: F401 — side-effect: registers all table metadata
-    Agent,
+    Gateway,
+    Target,
     HostGroup,
-    AgentGroupMembership,
+    TargetGroupMembership,
     CommandSet,
     Command,
     RoleBinding,
