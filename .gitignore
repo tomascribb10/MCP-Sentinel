@@ -58,6 +58,7 @@ alembic/versions/*.pyc
 *.swo
 *~
 CLAUDE.md
+TO-DO.md
 
 # OS
 .DS_Store
