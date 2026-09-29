@@ -93,3 +93,4 @@ Agent → solicita capability → Control Plane autoriza → Executor ejecuta
 8. **Si el repositorio entra en conflicto con la especificación**, documentar el conflicto antes de hacer cambios arquitectónicos.
 9. **No implementar capacidades futuras** solo porque el SDK lo permite.
 10. **Mantener el Capability SDK independiente** de transporte y persistencia del Control Plane.
+11. **Actualizar la bitácora** en `docs/plans/capability-sdk-v1.md` al completar cada work package.

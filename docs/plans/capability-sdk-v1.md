@@ -410,3 +410,12 @@ CAP-020
 | CAP-018 | Pendiente | — | — |
 | CAP-019 | Pendiente | — | — |
 | CAP-020 | Pendiente | — | — |
+
+---
+
+## Bitácora
+
+### 2026-09-29
+- Plan de implementación creado
+- Work packages definidos: CAP-001 a CAP-020
+- Fases organizadas: A (Foundation), B (Read-only catalog), C (Distributed execution), D (Agent integration), E (Release gate)
