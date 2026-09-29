@@ -71,3 +71,10 @@ logs/
 # Docker volumes / generated data
 postgres-data/
 rabbitmq-data/
+
+# Local data
+.local/
+
+# Type checkers and linters
+.mypy_cache/
+.ruff_cache/
