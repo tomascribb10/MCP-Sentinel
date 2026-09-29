@@ -797,7 +797,30 @@ Los plugins conformantes deben:
 
 ---
 
-## 11. Decisiones de Diseño
+## 11. Regla General: IDs
+
+Todos los IDs de objetos del sistema DEBEN ser UUIDs v4 (RFC 4122).
+
+### IDs que DEBEN ser UUID:
+- IDs primarios (PK)
+- IDs foráneos (FK)
+- IDs de negocio (executor_id, target_id, principal_id)
+- IDs de correlación (request_id, decision_id, policy_id)
+
+### Excepciones (pueden ser enteros o texto):
+- IDs de secuencia (heartbeat sequence)
+- Contadores (health_check_failures)
+- Valores de configuración (scope_type, resource_type, target_type)
+
+### Justificación:
+- OpenStack usa UUIDs para todos los IDs
+- Globalmente único sin coordinación
+- Seguro (no revela información)
+- Distribuido (múltiples componentes pueden generar IDs)
+
+---
+
+## 12. Decisiones de Diseño
 
 | Decisión | Resolución |
 |---|---|
