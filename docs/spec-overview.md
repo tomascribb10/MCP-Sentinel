@@ -485,15 +485,16 @@ Ver: `docs/design-decisions.md` sección 7
 
 | Documento | Descripción |
 |---|---|
-| `docs/capability-sdk-spec.md` | Capability SDK (interfaces, modelos, plugins) |
-| `docs/protocol-v2-spec.md` | Protocolo v2 (Control Plane ↔ Executor) |
-| `docs/control-plane-spec.md` | Control Plane (Conductor, Scheduler, APIs) |
-| `docs/executor-spec.md` | Executor |
-| `docs/cli-spec.md` | CLI |
-| `docs/deployment-spec.md` | Deployment (Docker, Ansible, Config) |
-| `docs/testing-spec.md` | Testing strategy |
-| `docs/design-decisions.md` | Decisiones de diseño consolidadas |
-| `docs/analysis-capability-sdk-v1.md` | Análisis de inconsistencias |
+| `docs/specs/capability-sdk-spec.md` | Capability SDK (interfaces, modelos, plugins) |
+| `docs/specs/protocol-v2-spec.md` | Protocolo v2 (Control Plane ↔ Executor) |
+| `docs/specs/control-plane-spec.md` | Control Plane (Conductor, Scheduler, APIs) |
+| `docs/specs/executor-spec.md` | Executor |
+| `docs/specs/cli-spec.md` | CLI |
+| `docs/specs/deployment-spec.md` | Deployment (Docker, Ansible, Config) |
+| `docs/specs/testing-spec.md` | Testing strategy |
+| `docs/specs/design-decisions.md` | Decisiones de diseño consolidadas |
+| `docs/analysis/analysis-capability-sdk-v1.md` | Análisis de inconsistencias |
+| `docs/plans/capability-sdk-v1.md` | Plan de implementación (work packages) |
 
 ---
 
@@ -515,7 +516,7 @@ Ver: `docs/design-decisions.md` sección 7
 
 ## 10. Work Packages
 
-Ver `docs/capability-sdk-spec.md` sección 20 para la lista completa de CAP-001 a CAP-020.
+Ver `docs/plans/capability-sdk-v1.md` para la lista completa de CAP-001 a CAP-020.
 
 **Phase A — Foundation:** CAP-001 a CAP-006  
 **Phase B — Read-only catalog:** CAP-007 a CAP-015  
