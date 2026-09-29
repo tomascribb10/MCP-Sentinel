@@ -238,10 +238,47 @@ await ctx.exec(
 | `bindings` | Asignaciones de autorización (principal + resource + target) |
 | `audit_log` | Registro inmutable de eventos |
 | `executors` | Registro de executores |
-| `targets` | Registro de targets (hosts) |
+| `targets` | Registro de targets (hosts) con estado y monitoreo |
 | `target_groups` | Grupos lógicos de targets |
 | `users` | Usuarios administradores |
 | `twofa_challenges` | Desafíos 2FA pendientes |
+
+### 4.2.1 Relación Executor-Target
+
+- Un **executor** puede gestionar **0 o N targets**
+- Un **target** pertenece a **un solo executor**
+- Relación **1:N** (executor → targets)
+
+Ejemplo:
+
+| Executor | Targets | Descripción |
+|---|---|---|
+| `executor-bastion-01` | `switch-01`, `switch-02`, `router-01` | Bastion gestiona dispositivos de red |
+| `executor-web-01` | `web-server-01` | Executor local en servidor web |
+
+### 4.2.2 Estados del Target
+
+| Estado | Descripción | Comportamiento |
+|---|---|---|
+| `ACTIVE` | Health check OK | Ejecución normal |
+| `UNAVAILABLE` | Health check falló 3 veces | Rechazar ejecución inmediato |
+| `DEGRADED` | Health check falló 1-2 veces | Ejecutar con advertencia |
+| `UNKNOWN` | Nunca monitoreado (best effort) | Intentar ejecución, retornar error si falla |
+
+### 4.2.3 Monitoreo Opccional
+
+El monitoreo de targets es **opcional**:
+
+- **Con monitoreo:** Health check periódico (TCP ping, SNMP, SSH, API)
+- **Sin monitoreo:** Estado `UNKNOWN` (best effort) — se intenta la ejecución y se maneja el error si falla
+
+| Target Type | Health Check Default | Timeout |
+|---|---|---|
+| REMOTE (switch, router) | TCP ping (port 22) | 5s |
+| DIRECT (Linux server) | TCP ping (port 22) | 5s |
+| VM | Hypervisor API call | 10s |
+| Container | Docker API call | 5s |
+| Custom | Configurable | Configurable |
 
 ### 4.3 Fuentes de Verdad
 

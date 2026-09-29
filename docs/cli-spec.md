@@ -183,10 +183,14 @@ Command (SentinelCommand / SentinelLister / SentinelShowOne)
 | `sentinel target show <target_id>` | Show target details |
 | `sentinel target update <target_id>` | Update target |
 | `sentinel target delete <target_id>` | Delete target |
+| `sentinel target health <target_id>` | Show target health status |
+| `sentinel target monitor enable <target_id>` | Enable health monitoring |
+| `sentinel target monitor disable <target_id>` | Disable health monitoring |
 
 **Target list options:** `--status`
 **Target update options:** `--description`, `--label KEY=VALUE` (repeatable)
 **Target delete options:** `--yes`
+**Target monitor enable options:** `--type` (TCP_PING, SNMP, SSH, API), `--interval` (seconds), `--timeout` (seconds)
 
 ### 5.8 Target Groups
 

@@ -634,6 +634,9 @@ Conductor calls scheduler.dispatch(request, executor_id)
 | `PATCH` | `/targets/{id}` | JWT | Update target |
 | `DELETE` | `/targets/{id}` | JWT | Delete target |
 | `GET` | `/targets/{id}/groups` | JWT | List target groups |
+| `GET` | `/targets/{id}/health` | JWT | Get target health status |
+| `POST` | `/targets/{id}/monitor/enable` | JWT | Enable health monitoring |
+| `POST` | `/targets/{id}/monitor/disable` | JWT | Disable health monitoring |
 
 #### 7.2.8 Target Groups (`/target-groups`)
 

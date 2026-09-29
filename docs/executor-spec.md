@@ -308,7 +308,84 @@ The Executor MUST verify requests in this exact order:
 
 ---
 
-## 8. Heartbeat and Synchronization
+## 8. Target Health Monitoring
+
+### 8.1 Overview
+
+The Executor optionally monitors the health of its targets. Monitoring is **configurable per target**.
+
+- **With monitoring:** Periodic health check (TCP ping, SNMP, SSH, API)
+- **Without monitoring:** Status `UNKNOWN` (best effort) — attempt execution and handle errors
+
+### 8.2 Target States
+
+| State | Description | Behavior |
+|---|---|---|
+| `ACTIVE` | Health check OK | Normal execution |
+| `UNAVAILABLE` | Health check failed 3 times | Reject execution immediately |
+| `DEGRADED` | Health check failed 1-2 times | Execute with warning |
+| `UNKNOWN` | Never monitored (best effort) | Attempt execution, return error if fails |
+
+### 8.3 Health Check Flow
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                    HEALTH CHECK                          │
+│  Executor → Target: TCP ping / SNMP / SSH every 30s     │
+│                                                          │
+│  Success → target.status = ACTIVE                        │
+│  Fail 1 → target.status = DEGRADED (warning)            │
+│  Fail 2 → target.status = DEGRADED (warning)            │
+│  Fail 3 → target.status = UNAVAILABLE                   │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                    EXECUTION                             │
+│  Agent requests capability on target                     │
+│  ├─ UNAVAILABLE → Return error immediately              │
+│  ├─ UNKNOWN → Attempt execution (best effort)           │
+│  └─ ACTIVE/DEGRADED → Execute normally                  │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                    RECOVERY                              │
+│  Every 5 min: Attempt health check                      │
+│  Success → target.status = ACTIVE                        │
+│  Fail → target.status = UNAVAILABLE (retry later)       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.4 Health Check Types
+
+| Target Type | Health Check | Timeout |
+|---|---|---|
+| REMOTE (switch, router) | TCP ping (port 22) | 5s |
+| DIRECT (Linux server) | TCP ping (port 22) | 5s |
+| VM | Hypervisor API call | 10s |
+| Container | Docker API call | 5s |
+| Custom | Configurable | Configurable |
+
+### 8.5 Configuration
+
+```yaml
+# In executor.yaml or per target
+targets:
+  switch-01:
+    monitoring_enabled: true
+    health_check_type: TCP_PING
+    health_check_interval_seconds: 30
+    health_check_timeout_seconds: 5
+    health_check_failures_threshold: 3
+    
+  legacy-device-01:
+    monitoring_enabled: false  # Best effort
+```
+
+---
+
+## 9. Heartbeat and Synchronization
 
 ### 8.1 Heartbeat
 
